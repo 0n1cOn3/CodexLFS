@@ -460,6 +460,40 @@ main() {
       Traceroute-*)     build_traceroute ;;
       Whois-*)          build_whois ;;
       Wireshark-*)      build_wireshark ;;
+      curl-*|cURL-*)    build_curl ;;
+      c-ares-*)         build_c_ares ;;
+      GeoClue-*)        build_geoclue ;;
+      glib-networking-*) build_glib_networking ;;
+      libevent-*)       build_libevent ;;
+      libpcap-*)        build_libpcap ;;
+      nghttp2-*)        build_nghttp2 ;;
+      ldns-*)           build_ldns ;;
+      libmnl-*)         build_libmnl ;;
+      libndp-*)         build_libndp ;;
+      libnma-*)         build_libnma ;;
+      libsoup-3.*)      build_libsoup3 ;;
+      libsoup-*)        build_libsoup ;;
+      libpsl-*)         build_libpsl ;;
+      libslirp-*)       build_libslirp ;;
+      kdsoap-*)         build_kdsoap ;;
+      kdsoap-ws-discovery-client-*) build_kdsoap_ws_discovery_client ;;
+      libnl-*)          build_libnl ;;
+      libnsl-*)         build_libnsl ;;
+      libtirpc-*)       build_libtirpc ;;
+      neon-*)           build_neon ;;
+      rpcsvc-proto-*)   build_rpcsvc_proto ;;
+      Serf-*)           build_serf ;;
+      uhttpmock-*)      build_uhttpmock ;;
+      Links-*)          build_links ;;
+      Lynx-*)           build_lynx ;;
+      Fetchmail-*)      build_fetchmail ;;
+      mailx-*)          build_mailx ;;
+      Mutt-*)           build_mutt ;;
+      Procmail-*)       build_procmail ;;
+      Apache-*)         build_apache ;;
+      BIND-[0-9]*|BIND-*) build_bind ;;
+      Kea-*)            build_kea ;;
+      ProFTPD-*)        build_proftpd ;;
       Wget-*)           build_wget ;;
       Dash-*)           build_dash ;;
       Tcsh-*)           build_tcsh ;;
@@ -4152,6 +4186,207 @@ chmod 755 /usr/lib/libtk8.6.so
 CMD
 }
 
+build_curl() {
+  run_step "curl" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-static \
+            --with-openssl \
+            --with-ca-path=/etc/ssl/certs
+make
+make install
+rm -rf docs/examples/.deps
+find docs \( -name Makefile\* -o -name \*.1 -o -name \*.3 -o -name CMakeLists.txt \) -delete
+cp -v -R docs -T /usr/share/doc/curl-8.12.1
+CMD
+}
+
+build_libevent() {
+  run_step "libevent" bash -e <<'CMD'
+sed -i 's/python/&3/' event_rpcgen.py
+./configure --prefix=/usr --disable-static
+make
+doxygen Doxyfile
+make install
+install -v -m755 -d /usr/share/doc/libevent-2.1.12/api
+cp -v -R doxygen/html/* /usr/share/doc/libevent-2.1.12/api
+CMD
+}
+
+build_libpcap() {
+  run_step "libpcap" bash -e <<'CMD'
+./configure --prefix=/usr
+make
+sed -i '/INSTALL_DATA.*libpcap.a\|RANLIB.*libpcap.a/ s/^/#/' Makefile
+make install
+CMD
+}
+
+build_nghttp2() {
+  run_step "nghttp2" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-static \
+            --enable-lib-only \
+            --docdir=/usr/share/doc/nghttp2-1.64.0
+make
+make install
+CMD
+}
+
+build_libsoup() {
+  run_step "libsoup" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            -D vapi=enabled \
+            -D gssapi=disabled \
+            -D sysprof=disabled \
+            ..
+ninja
+ninja install
+CMD
+}
+
+build_libsoup3() {
+  run_step "libsoup3" bash -e <<'CMD'
+sed 's/apiversion/soup_version/' -i docs/reference/meson.build
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            --wrap-mode=nofallback \
+            ..
+ninja
+ninja install
+CMD
+}
+
+build_kdsoap() {
+  run_step "kdsoap" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr \
+      -D CMAKE_BUILD_TYPE=Release \
+      -D KDSoap_QT6=ON \
+      -D CMAKE_INSTALL_DOCDIR=/usr/share/doc/kdsoap-2.2.0 \
+      ..
+make
+make install
+CMD
+}
+
+build_kdsoap_ws_discovery_client() {
+  run_step "kdsoap-ws-discovery-client" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr \
+      -D CMAKE_BUILD_TYPE=Release \
+      -D CMAKE_SKIP_INSTALL_RPATH=ON \
+      -D QT_MAJOR_VERSION=6 \
+      -W no-dev ..
+make
+make install
+mv -v /usr/share/doc/KDSoapWSDiscoveryClient{,-0.4.0}
+CMD
+}
+
+build_libnl() {
+  run_step "libnl" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --disable-static
+make
+make install
+mkdir -vp /usr/share/doc/libnl-3.11.0
+tar -xf ../libnl-doc-3.11.0.tar.gz --strip-components=1 --no-same-owner \
+    -C /usr/share/doc/libnl-3.11.0
+CMD
+}
+
+build_libnsl() {
+  run_step "libnsl" bash -e <<'CMD'
+./configure --sysconfdir=/etc --disable-static
+make
+make install
+CMD
+}
+
+build_libtirpc() {
+  run_step "libtirpc" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --disable-static \
+            --disable-gssapi
+make
+make install
+CMD
+}
+
+build_links() {
+  run_step "Links" bash -e <<'CMD'
+./configure --prefix=/usr --mandir=/usr/share/man
+make
+make install
+install -v -d -m755 /usr/share/doc/links-2.30
+install -v -m644 doc/links_cal/* KEYS BRAILLE_HOWTO /usr/share/doc/links-2.30
+CMD
+}
+
+build_lynx() {
+  run_step "Lynx" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --sysconfdir=/etc/lynx \
+            --with-zlib \
+            --with-bzlib \
+            --with-ssl \
+            --with-screen=ncursesw \
+            --enable-locale-charset \
+            --datadir=/usr/share/doc/lynx-2.9.2
+make
+make install-full
+chgrp -v -R root /usr/share/doc/lynx-2.9.2/lynx_doc
+sed -e '/#LOCALE/     a LOCALE_CHARSET:TRUE'     \
+    -i /etc/lynx/lynx.cfg
+sed -e '/#DEFAULT_ED/ a DEFAULT_EDITOR:vi'       \
+    -i /etc/lynx/lynx.cfg
+sed -e '/#PERSIST/    a PERSISTENT_COOKIES:TRUE' \
+    -i /etc/lynx/lynx.cfg
+CMD
+}
+
+build_mutt() {
+  run_step "Mutt" bash -e <<'CMD'
+groupadd -g 34 mail || true
+chgrp -v mail /var/mail
+sed  -e 's/ -with_backspaces//' \
+     -e 's/elinks/links/'       \
+     -e 's/-no-numbering -no-references//' \
+     -i doc/Makefile.in
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --with-docdir=/usr/share/doc/mutt-2.2.14 \
+            --with-ssl \
+            --enable-external-dotlock \
+            --enable-pop \
+            --enable-imap \
+            --enable-hcache \
+            --enable-sidebar
+make
+make install
+chown root:mail /usr/bin/mutt_dotlock
+chmod -v 2755 /usr/bin/mutt_dotlock
+cat /usr/share/doc/mutt-2.2.14/samples/gpg.rc >> ~/.muttrc
+CMD
+}
+
+build_procmail() {
+  run_step "Procmail" bash -e <<'CMD'
+patch -Np1 -i ../procmail-3.24-consolidated_fixes-1.patch
+make LOCKINGTEST=/tmp MANDIR=/usr/share/man install
+make install-suid
+CMD
+}
+
 build_unifdef() {
   run_step "unifdef" bash -e <<'CMD'
 make
@@ -4166,6 +4401,246 @@ bootstrap/bin/ant -f fetch.xml -Ddest=optional
 ./build.sh -Ddist.dir=$PWD/ant-1.10.15 dist
 cp -rv ant-1.10.15 /opt/
 chown -R root:root /opt/ant-1.10.15
+
+  ln -sfv ant-1.10.15 /opt/ant
+CMD
+}
+
+build_c_ares() {
+  run_step "c-ares" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr ..
+make
+make install
+CMD
+}
+
+build_geoclue() {
+  run_step "GeoClue" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup .. \
+      --prefix=/usr \
+      --buildtype=release \
+      -D gtk-doc=false
+ninja
+ninja install
+CMD
+}
+
+build_glib_networking() {
+  run_step "glib-networking" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup \
+   --prefix=/usr \
+   --buildtype=release \
+   -D libproxy=disabled ..
+ninja
+ninja install
+CMD
+}
+
+build_ldns() {
+  run_step "ldns" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --disable-static \
+            --with-drill
+make
+make install
+install -v -m755 -d /usr/share/doc/ldns-1.8.4
+install -v -m644 doc/html/* /usr/share/doc/ldns-1.8.4
+CMD
+}
+
+build_libmnl() {
+  run_step "libmnl" bash -e <<'CMD'
+./configure --prefix=/usr
+make
+make install
+CMD
+}
+
+build_libndp() {
+  run_step "libndp" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --localstatedir=/var \
+            --disable-static
+make
+make install
+CMD
+}
+
+build_libnma() {
+  run_step "libnma" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup .. \
+      --prefix=/usr \
+      --buildtype=release \
+      -D gtk_doc=false \
+      -D libnma_gtk4=true \
+      -D mobile_broadband_provider_info=false
+ninja
+ninja install
+CMD
+}
+
+build_libpsl() {
+  run_step "libpsl" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_libslirp() {
+  run_step "libslirp" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_neon() {
+  run_step "neon" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --with-ssl \
+            --enable-shared \
+            --disable-static
+make
+make install
+CMD
+}
+
+build_rpcsvc_proto() {
+  run_step "rpcsvc-proto" bash -e <<'CMD'
+./configure --sysconfdir=/etc
+make
+make install
+CMD
+}
+
+build_serf() {
+  run_step "Serf" bash -e <<'CMD'
+sed -i "/Append/s:RPATH=libdir,::" SConstruct
+sed -i "/Default/s:lib_static,::" SConstruct
+sed -i "/Alias/s:install_static,::" SConstruct
+scons PREFIX=/usr
+scons PREFIX=/usr install
+CMD
+}
+
+build_uhttpmock() {
+  run_step "uhttpmock" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup .. \
+      --prefix=/usr \
+      --buildtype=release \
+      -D gtk_doc=false
+ninja
+ninja install
+CMD
+}
+
+build_fetchmail() {
+  run_step "Fetchmail" bash -e <<'CMD'
+useradd -c "Fetchmail User" -d /dev/null -g nogroup -s /bin/false -u 38 fetchmail || true
+./configure --prefix=/usr
+make
+make install
+chown -v fetchmail:nogroup /usr/bin/fetchmail
+CMD
+}
+
+build_mailx() {
+  run_step "mailx" bash -e <<'CMD'
+patch -Np1 -i ../heirloom-mailx-12.5-fixes-1.patch
+sed 's@<openssl@<openssl-1.0/openssl@' -i openssl.c fio.c makeconfig
+make -j1 LDFLAGS+="-L /usr/lib/openssl/" SENDMAIL=/usr/sbin/sendmail
+make PREFIX=/usr UCBINSTALL=/usr/bin/install install
+ln -sf mailx /usr/bin/mail
+ln -sf mailx /usr/bin/nail
+install -d -m755 /usr/share/doc/heirloom-mailx-12.5
+install -m644 README /usr/share/doc/heirloom-mailx-12.5
+CMD
+}
+
+build_apache() {
+  run_step "Apache" bash -e <<'CMD'
+groupadd -g 25 apache || true
+useradd -c "Apache Server" -d /srv/www -g apache -s /bin/false -u 25 apache || true
+sed -e '/dir.*CFG_PREFIX/s@^@#@' -i support/apxs.in
+sed -e '/HTTPD_ROOT/s@/usr/local/apache2@/srv/www@' \
+    -e '/SERVER_CONFIG_FILE/s@apache2@httpd@' -i docs/conf/httpd.conf.in
+sed -e '/encoding.h/a #include <apr_escape.h>' -i server/util.c
+./configure --enable-authnz-fcgi \
+            --enable-layout=BLFS \
+            --enable-mods-shared="all cgi" \
+            --enable-mpms-shared=all \
+            --enable-suexec=shared \
+            --with-apr=/usr/bin/apr-1-config \
+            --with-apr-util=/usr/bin/apu-1-config \
+            --with-suexec-bin=/usr/lib/httpd/suexec \
+            --with-suexec-caller=apache \
+            --with-suexec-docroot=/srv/www \
+            --with-suexec-logfile=/var/log/httpd/suexec.log \
+            --with-suexec-uidmin=100 \
+            --with-suexec-userdir=public_html
+make
+make install
+mv -v /usr/sbin/suexec /usr/lib/httpd/suexec
+chgrp apache /usr/lib/httpd/suexec
+chmod 4754 /usr/lib/httpd/suexec
+chown -R apache:apache /srv/www
+CMD
+}
+
+build_bind() {
+  run_step "BIND" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --localstatedir=/var \
+            --mandir=/usr/share/man \
+            --disable-static \
+            --with-python=python3
+make
+make install
+CMD
+}
+
+build_kea() {
+  run_step "Kea" bash -e <<'CMD'
+patch -Np1 -i ../kea-2.6.1-fix_boost_1_87-1.patch
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --localstatedir=/var \
+            --enable-shell \
+            --with-openssl \
+            --disable-static \
+            --docdir=/usr/share/doc/kea-2.6.1
+make
+make -j1 install
+CMD
+}
+
+build_proftpd() {
+  run_step "ProFTPD" bash -e <<'CMD'
+groupadd -g 46 proftpd || true
+useradd -c proftpd -d /srv/ftp -g proftpd -s /bin/false -u 46 proftpd || true
+./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/run
+make
+make install
+install -d -m755 /usr/share/doc/proftpd-1.3.8b
+cp -Rv doc/* /usr/share/doc/proftpd-1.3.8b
 ln -sfv ant-1.10.15 /opt/ant
 CMD
 }
