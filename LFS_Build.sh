@@ -42,6 +42,38 @@ ROOT_PASSWORD="root"
 export LFS
 umask 022
 
+# Check for TUI toolkit
+WHIPTAIL_BIN=$(command -v whiptail || true)
+
+show_gauge() {
+  local pct="$1" msg="$2" pid
+  if [[ -n "$WHIPTAIL_BIN" ]]; then
+    "$WHIPTAIL_BIN" --gauge "$msg" 6 60 "$pct" &
+    pid=$!
+  else
+    printf "\r[%-50s] %3d%% - %s" "$(printf '#%.0s' $(seq 1 $((pct/2))))" "$pct" "$msg"
+    pid=0
+  fi
+  echo "$pid"
+}
+
+run_with_progress() {
+  local step=$1 total=$2 desc=$3 func=$4
+  local pct=$(( step * 100 / total ))
+  local start end dur pid
+  pid=$(show_gauge "$pct" "$desc")
+  start=$(date +%s)
+  "$func"
+  end=$(date +%s)
+  dur=$(( end - start ))
+  if [[ $pid -ne 0 ]]; then
+    kill "$pid" 2>/dev/null && wait "$pid" 2>/dev/null
+  else
+    echo
+  fi
+  printf '[INFO] %s completed in %ds\n' "$desc" "$dur"
+}
+
 check_lfs_env() {
   echo "[INFO] LFS: $LFS, umask: $(umask)"
   if [[ "$(umask)" != "0022" && "$(umask)" != "022" ]]; then
@@ -614,10 +646,13 @@ EOF
 }
 
 main() {
-  check_lfs_env
-  # Phases 4-6 omitted
-  mount_virtual_fs
-  enter_chroot
+  local steps=(check_lfs_env mount_virtual_fs enter_chroot)
+  local total=${#steps[@]}
+  local i=0
+  for func in "${steps[@]}"; do
+    i=$((i + 1))
+    run_with_progress "$i" "$total" "$func" "$func"
+  done
 }
 
 main "$@"
