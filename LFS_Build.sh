@@ -7,7 +7,6 @@ trap 'echo "[ERROR] at line $LINENO"; exit 1' ERR
 
 ### Configuration ###
 LFS=/mnt/lfs
-LFS_SRC_DIR=$LFS/sources
 LOG_DIR=/var/log/lfs-build
 ISO_DIR=/iso
 ISO_IMG=$PWD/lfs-live.iso
@@ -33,26 +32,26 @@ check_lfs_env() {
 ########################################
 
 mount_virtual_fs() {
-  mount -v --bind /dev $LFS/dev
-  mount -v --bind /dev/pts $LFS/dev/pts
-  mount -vt proc proc $LFS/proc
-  mount -vt sysfs sysfs $LFS/sys
-  mount -vt tmpfs tmpfs $LFS/run
-  if [ -h $LFS/dev/shm ]; then
-    install -dv -m1777 $LFS$(realpath /dev/shm)
+  mount -v --bind /dev "$LFS/dev"
+  mount -v --bind /dev/pts "$LFS/dev/pts"
+  mount -vt proc proc "$LFS/proc"
+  mount -vt sysfs sysfs "$LFS/sys"
+  mount -vt tmpfs tmpfs "$LFS/run"
+  if [ -h "$LFS/dev/shm" ]; then
+    install -dv -m1777 "$LFS$(realpath /dev/shm)"
   else
-    mount -vt tmpfs -o nosuid,nodev tmpfs $LFS/dev/shm
+    mount -vt tmpfs -o nosuid,nodev tmpfs "$LFS/dev/shm"
   fi
 }
 
 enter_chroot() {
-  chroot $LFS /usr/bin/env -i \
+  chroot "$LFS" /usr/bin/env -i \
     HOME=/root TERM="$TERM" PS1='(lfs chroot) \u:\w\$ ' \
-    PATH=/usr/bin:/usr/sbin \
-    MAKEFLAGS="-j$(nproc)" TESTSUITEFLAGS="-j$(nproc)" \
+        PATH=/usr/bin:/usr/sbin LC_ALL=POSIX \
+        MAKEFLAGS="-j$(nproc)" TESTSUITEFLAGS="-j$(nproc)" LFS_TGT="$LFS_TGT" \
     /bin/bash --login << 'EOF'
 set -euo pipefail
-export MAKEFLAGS TESTSUITEFLAGS LC_ALL
+export MAKEFLAGS TESTSUITEFLAGS LC_ALL LFS_TGT
 
 # Chapters 7 completed above
 
@@ -145,7 +144,7 @@ CH8_PACKAGES=(
 
 for pkg in "${CH8_PACKAGES[@]}"; do
   echo ">>> Chapter 8: Building $pkg"
-  cd $LFS_SRC_DIR/$pkg
+  cd /sources/$pkg
   case "$pkg" in
     man-pages-6.12)
       make prefix=/usr install ;;
@@ -154,164 +153,164 @@ for pkg in "${CH8_PACKAGES[@]}"; do
     glibc-2.41)
       patch -Np1 -i ../glibc-2.41-fhs-1.patch
       mkdir -v build && cd build
-      ../configure --prefix=/usr --host=$LFS_TGT --build=$(../scripts/config.guess) \
-                   --enable-kernel=5.4 --with-headers=$LFS/usr/include \
+      ../configure --prefix=/usr --host="$LFS_TGT" --build="$(../scripts/config.guess)" \
+                   --enable-kernel=5.4 --with-headers=/usr/include \
                    --disable-nscd libc_cv_slibdir=/usr/lib
-      make && make DESTDIR=$LFS install ;;
+      make && make install ;;
     zlib-1.3.1)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     bzip2-1.0.8)
       patch -Np1 -i ../bzip2-1.0.8-install_docs-1.patch
       make -f Makefile-libbz2_so && make clean
       make PREFIX=/usr install && cp -v libbz2.so.* /usr/lib && ln -sv libbz2.so.1.0 /usr/lib/libbz2.so ;;
     xz-5.6.4)
       ./configure --prefix=/usr --disable-static --docdir=/usr/share/doc/xz-5.6.4
-      make && make DESTDIR=$LFS install ;;
+      make && make install ;;
     lz4-1.10.0)
-      make PREFIX=/usr DESTDIR=$LFS install ;;
+      make PREFIX=/usr install ;;
     zstd-1.5.7)
-      make PREFIX=/usr DESTDIR=$LFS install ;;
+      make PREFIX=/usr install ;;
     file-5.46)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     readline-8.2.13)
       ./configure --prefix=/usr --disable-static --with-curses
-      make SHLIB_LIBS="-lncursesw" && make DESTDIR=$LFS install ;;
+      make SHLIB_LIBS="-lncursesw" && make install ;;
     m4-1.4.19)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     bc-7.0.3)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     flex-2.6.4)
-      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static && make && make install ;;
     tcl-8.6.16)
-      cd unix && ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      cd unix && ./configure --prefix=/usr && make && make install ;;
     expect-5.45.4)
-      ./configure --prefix=/usr --with-tcl=/usr/lib && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --with-tcl=/usr/lib && make && make install ;;
     dejagnu-1.6.3)
-      autoreconf -f -i && ./configure --prefix=/usr --enable-install-doc && make && make DESTDIR=$LFS install ;;
+      autoreconf -f -i && ./configure --prefix=/usr --enable-install-doc && make && make install ;;
     pkgconf-2.3.0)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     binutils-2.44)
       mkdir -v build && cd build
       ../configure --prefix=/usr --disable-nls --enable-shared --enable-64-bit-bfd \
                    --enable-new-dtags --enable-default-hash-style=gnu
-      make && make DESTDIR=$LFS install ;;
+      make && make install ;;
     gmp-6.3.0)
-      ./configure --prefix=/usr --enable-cxx && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --enable-cxx && make && make install ;;
     mpfr-4.2.1)
-      ./configure --prefix=/usr --disable-static --enable-thread-safe && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static --enable-thread-safe && make && make install ;;
     mpc-1.3.1)
-      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static && make && make install ;;
     attr-2.5.2|acl-2.3.2)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     libcap-2.73)
-      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static && make && make install ;;
     libxcrypt-4.4.38)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     shadow-4.17.3)
-      ./configure --prefix=/usr --sysconfdir=/etc && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --sysconfdir=/etc && make && make install ;;
     gcc-14.2.0)
       mkdir -v build && cd build
       ../configure --prefix=/usr --disable-multilib --enable-languages=c,c++ \
                    --disable-bootstrap --disable-libsanitizer
-      make && make DESTDIR=$LFS install && ln -sv gcc $LFS/usr/bin/cc ;;
+      make && make install && ln -sv gcc /usr/bin/cc ;;
     ncurses-6.5)
       mkdir build && cd build && ../configure --prefix=/usr --mandir=/usr/share/man \
                    --with-shared --without-debug --without-normal --enable-pc-files \
-                   --with-cxx-shared && make && make DESTDIR=$LFS install && echo "" ;;
+                   --with-cxx-shared && make && make install && echo "" ;;
     sed-4.9)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     psmisc-23.7)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     gettext-0.24)
       ./configure --disable-shared && make && cp gettext-tools/src/{msgfmt,msgmerge,xgettext} /usr/bin ;;
     bison-3.8.2)
       ./configure --prefix=/usr --docdir=/usr/share/doc/bison-3.8.2 && make && make install ;;
     grep-3.11)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     bash-5.2.37)
-      ./configure --prefix=/usr --host=$LFS_TGT --without-bash-malloc && make && make DESTDIR=$LFS install && ln -sv bash /bin/sh ;;
+      ./configure --prefix=/usr --host="$LFS_TGT" --without-bash-malloc && make && make install && ln -sv bash /bin/sh ;;
     libtool-2.5.4)
-      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static && make && make install ;;
     gdbm-1.24)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     gperf-3.1)
-      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static && make && make install ;;
     expat-2.6.4)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     inetutils-2.6)
-      ./configure --prefix=/usr --localstatedir=/var/mail && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --localstatedir=/var/mail && make && make install ;;
     less-668)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     perl-5.40.1)
-      ./Configure -des -Dprefix=/usr -Dusrinc=/usr/include && make && make DESTDIR=$LFS install ;;
+      ./Configure -des -Dprefix=/usr -Dusrinc=/usr/include && make && make install ;;
     xml-parser-2.47)
-      perl Makefile.PL PREFIX=/usr && make && make DESTDIR=$LFS install ;;
+      perl Makefile.PL PREFIX=/usr && make && make install ;;
     intltool-0.51.0)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     autoconf-2.72)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     automake-1.17)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     openssl-3.4.1)
-      ./Configure --prefix=/usr --libdir=lib --openssldir=/etc/ssl && make && make DESTDIR=$LFS install ;;
+      ./Configure --prefix=/usr --libdir=lib --openssldir=/etc/ssl && make && make install ;;
     elfutils-0.192)
-      mkdir -v build && cd build && ../configure --prefix=/usr --disable-debuginfod && make && make DESTDIR=$LFS install ;;
+      mkdir -v build && cd build && ../configure --prefix=/usr --disable-debuginfod && make && make install ;;
     libffi-3.4.7)
-      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static && make && make install ;;
     python-3.13.2)
-      ./configure --prefix=/usr --enable-shared --without-ensurepip && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --enable-shared --without-ensurepip && make && make install ;;
     flit-core-3.11.0|wheel-0.45.1|setuptools-75.8.1)
       python3 -m pip install --prefix=/usr $pkg ;;
     ninja-1.12.1)
       ./configure --bootstrap && cp ninja /usr/bin ;;
     meson-1.7.0)
-      python3 setup.py build && python3 setup.py install --root=$LFS ;;
+      python3 setup.py build && python3 setup.py install ;;
     kmod-34)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     coreutils-9.6)
-      ./configure --prefix=/usr --host=$LFS_TGT --build=$(build-aux/config.guess) && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --host="$LFS_TGT" --build="$(build-aux/config.guess)" && make && make install ;;
     check-0.15.2)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     diffutils-3.11)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     gawk-5.3.1)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     findutils-4.10.0)
-      ./configure --prefix=/usr --localstatedir=/var/lib/locate && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --localstatedir=/var/lib/locate && make && make install ;;
     groff-1.23.0)
-      ./configure --prefix=/usr --sysconfdir=/etc groff_cv_forced_unlink=true && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --sysconfdir=/etc groff_cv_forced_unlink=true && make && make install ;;
     grub-2.12)
-      ./configure --prefix=/usr --sysconfdir=/etc --disable-efiemu && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --sysconfdir=/etc --disable-efiemu && make && make install ;;
     gzip-1.13)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     iproute2-6.13.0)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     kbd-2.7.1)
-      ./configure --prefix=/usr --with-models="etc/vconsole" && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --with-models="etc/vconsole" && make && make install ;;
     libpipeline-1.5.8)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     make-4.4.1)
-      ./configure --prefix=/usr --without-guile && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --without-guile && make && make install ;;
     patch-2.7.6)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     tar-1.35)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     texinfo-7.2)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     vim-9.1.1166)
-      ./configure --prefix=/usr --with-features=huge --enable-multibyte && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --with-features=huge --enable-multibyte && make && make install ;;
     markupsafe-3.0.2)
       python3 -m pip install --prefix=/usr MarkupSafe ;;
     jinja2-3.1.5)
       python3 -m pip install --prefix=/usr Jinja2 ;;
     systemd-257.3)
-      ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var && make && make install ;;
     systemd-man-pages-257.3)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
     man-db-2.13.0)
-      ./configure --prefix=/usr --sysconfdir=/etc && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --sysconfdir=/etc && make && make install ;;
     procps-ng-4.0.5)
-      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --disable-static && make && make install ;;
     util-linux-2.40.4)
       mkdir -pv /var/lib/hwclock && \
       ./configure --prefix=/usr --libdir=/usr/lib --runstatedir=/run \
@@ -321,20 +320,24 @@ for pkg in "${CH8_PACKAGES[@]}"; do
                    --disable-liblastlog2 --without-python \
                    ADJTIME_PATH=/var/lib/hwclock/adjtime \
                    --docdir=/usr/share/doc/util-linux-2.40.4 \
-      && make && make DESTDIR=$LFS install ;;
+      && make && make install ;;
     e2fsprogs-1.47.2)
-      ./configure --prefix=/usr --enable-elf-shlibs && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr --enable-elf-shlibs && make && make install ;;
     sysklogd-2.7.0)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
-    sysvinit-3.14)
-      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+      ./configure --prefix=/usr && make && make install ;;
+  sysvinit-3.14)
+      ./configure --prefix=/usr && make && make install ;;
   esac
 done
 
+# Install LFS Bootscripts (Chapter 9)
+cd /sources/LFS-Bootscripts-20240825
+make install
+
 # Final system configuration
 ln -sv /proc/self/mounts /etc/mtab
-cat > /etc/hosts << EOF
-127.0.0.1  localhost $(hostname)
+cat > /etc/hosts << "EOF"
+127.0.0.1  localhost
 ::1        localhost
 EOF
 # Create passwd and group as per LFS Book
@@ -395,8 +398,6 @@ strip --strip-unneeded /usr/bin/* /usr/sbin/* /bin/* /sbin/* || true
 find /usr/{lib,libexec} -name '*.la' -delete
 rm -rf /usr/share/{info,man,doc}/*
 exit
-EOF
-EOF
 EOF
 }
 
