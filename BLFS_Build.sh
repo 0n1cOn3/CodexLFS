@@ -4401,6 +4401,7 @@ bootstrap/bin/ant -f fetch.xml -Ddest=optional
 ./build.sh -Ddist.dir=$PWD/ant-1.10.15 dist
 cp -rv ant-1.10.15 /opt/
 chown -R root:root /opt/ant-1.10.15
+
   ln -sfv ant-1.10.15 /opt/ant
 CMD
 }
@@ -4640,6 +4641,7 @@ make
 make install
 install -d -m755 /usr/share/doc/proftpd-1.3.8b
 cp -Rv doc/* /usr/share/doc/proftpd-1.3.8b
+ln -sfv ant-1.10.15 /opt/ant
 CMD
 }
 main "$@"
