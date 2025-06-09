@@ -27,6 +27,11 @@ BROADCAST=192.168.1.255
 DNS1=8.8.8.8
 DNS2=8.8.4.4
 
+# Filesystem partitions and types
+ROOT_PART=/dev/sda2
+SWAP_PART=/dev/sda5
+ROOT_FS_TYPE=ext4
+
 # Time zone and locale configuration
 TIMEZONE=UTC
 LOCALE="en_US.UTF-8"
@@ -366,14 +371,14 @@ make install
   ::1        localhost ip6-localhost ip6-loopback
   ff02::1    ip6-allnodes
   ff02::2    ip6-allrouters
-  EOF
+EOF
 
   cat > /etc/resolv.conf << EOF
   # Begin /etc/resolv.conf
   nameserver $DNS1
   nameserver $DNS2
   # End /etc/resolv.conf
-  EOF
+EOF
 
   mkdir -p /etc/sysconfig
   cat > /etc/sysconfig/ifconfig.$NET_IFACE << EOF
@@ -384,21 +389,21 @@ make install
   GATEWAY=$GATEWAY
   PREFIX=$PREFIX
   BROADCAST=$BROADCAST
-  EOF
+EOF
 
   cat > /etc/sysconfig/clock << "EOF"
   # Begin /etc/sysconfig/clock
   UTC=1
   CLOCKPARAMS=
   # End /etc/sysconfig/clock
-  EOF
+EOF
 
   cat > /etc/sysconfig/console << "EOF"
   # Begin /etc/sysconfig/console
   UNICODE="1"
   FONT="Lat2-Terminus16"
   # End /etc/sysconfig/console
-  EOF
+EOF
 
   cat > /etc/inittab << "EOF"
   # Begin /etc/inittab
@@ -428,23 +433,23 @@ make install
   6:2345:respawn:/sbin/agetty tty6 9600
 
   # End /etc/inittab
-  EOF
+EOF
 
   cat > /etc/sysconfig/rc.site << EOF
   # rc.site
   HOSTNAME=$HOSTNAME
-  EOF
+EOF
 
   ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 
   ### Section 10: Making the LFS Bootable ###
 
-  cat > /etc/fstab << "EOF"
+  cat > /etc/fstab << EOF
   # Begin /etc/fstab
 
   # file system  mount-point    type     options             dump  fsck order
-  /dev/<xxx>     /              <fff>    defaults            1     1
-  /dev/<yyy>     swap           swap     pri=1               0     0
+  $ROOT_PART     /              $ROOT_FS_TYPE    defaults            1     1
+  $SWAP_PART     swap           swap     pri=1               0     0
   proc           /proc          proc     nosuid,noexec,nodev 0     0
   sysfs          /sys           sysfs    nosuid,noexec,nodev 0     0
   devpts         /dev/pts       devpts   gid=5,mode=620      0     0
@@ -454,7 +459,7 @@ make install
   cgroup2        /sys/fs/cgroup cgroup2  nosuid,noexec,nodev 0     0
 
   # End /etc/fstab
-  EOF
+EOF
 
   cat > /etc/profile << EOF
   # Begin /etc/profile
@@ -470,7 +475,7 @@ make install
   fi
 
   # End /etc/profile
-  EOF
+EOF
 
   cat > /etc/inputrc << "EOF"
   # Begin /etc/inputrc
@@ -493,14 +498,14 @@ make install
   "\e[H": beginning-of-line
   "\e[F": end-of-line
   # End /etc/inputrc
-  EOF
+EOF
 
   cat > /etc/shells << "EOF"
   # Begin /etc/shells
   /bin/sh
   /bin/bash
   # End /etc/shells
-  EOF
+EOF
 
   echo "root:$ROOT_PASSWORD" | chpasswd
 # Create passwd and group as per LFS Book
