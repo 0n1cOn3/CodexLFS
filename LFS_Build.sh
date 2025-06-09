@@ -558,6 +558,48 @@ strip --strip-unneeded /usr/bin/* /usr/sbin/* /bin/* /sbin/* || true
 # Remove libtool archives and documentation
 find /usr/{lib,libexec} -name '*.la' -delete
 rm -rf /usr/share/{info,man,doc}/*
+
+# Build and install the Linux kernel
+cd /sources/linux-6.13.4
+make mrproper
+make defconfig
+make -j"${MAKEFLAGS#-j}"
+make modules_install
+cp -iv arch/x86/boot/bzImage /boot/vmlinuz-6.13.4-lfs-12.3
+cp -iv System.map /boot/System.map-6.13.4
+cp -iv .config /boot/config-6.13.4
+cp -r Documentation -T /usr/share/doc/linux-6.13.4
+chown -R 0:0 .
+
+# Configure module load order
+install -v -m755 -d /etc/modprobe.d
+cat > /etc/modprobe.d/usb.conf << "EOF"
+# Begin /etc/modprobe.d/usb.conf
+
+install ohci_hcd /sbin/modprobe ehci_hcd ; /sbin/modprobe -i ohci_hcd ; true
+install uhci_hcd /sbin/modprobe ehci_hcd ; /sbin/modprobe -i uhci_hcd ; true
+
+# End /etc/modprobe.d/usb.conf
+EOF
+
+# Install and configure GRUB
+grub-install /dev/sda
+cat > /boot/grub/grub.cfg << "EOF"
+# Begin /boot/grub/grub.cfg
+set default=0
+set timeout=5
+
+insmod part_gpt
+insmod ext2
+set root=(hd0,2)
+set gfxpayload=1024x768x32
+
+menuentry "GNU/Linux, Linux 6.13.4-lfs-12.3" {
+        linux   /boot/vmlinuz-6.13.4-lfs-12.3 root=/dev/sda2 ro
+}
+# End /boot/grub/grub.cfg
+EOF
+
 exit
 EOF
 }
