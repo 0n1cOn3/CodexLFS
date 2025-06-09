@@ -443,8 +443,8 @@ EOF
   ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 
   ### Section 10: Making the LFS Bootable ###
-
-  cat > /etc/fstab << EOF
+  cat > /etc/fstab << "EOF"
+  
   # Begin /etc/fstab
 
   # file system  mount-point    type     options             dump  fsck order
