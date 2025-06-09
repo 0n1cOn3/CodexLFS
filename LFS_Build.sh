@@ -1,0 +1,410 @@
+#!/usr/bin/env bash
+set -euo pipefail
+trap 'echo "[ERROR] at line $LINENO"; exit 1' ERR
+
+# LFS Build Orchestrator — Version 1.0
+# End-to-end automation for building a Linux From Scratch system
+
+### Configuration ###
+LFS=/mnt/lfs
+LFS_SRC_DIR=$LFS/sources
+LOG_DIR=/var/log/lfs-build
+ISO_DIR=/iso
+ISO_IMG=$PWD/lfs-live.iso
+LFS_USER=lfs
+LFS_PASSWORD='changeme'
+MAKEFLAGS=-j$(nproc)
+LC_ALL=POSIX
+LFS_TGT=$(uname -m)-lfs-linux-gnu
+PATH=$LFS/tools/bin:$PATH
+
+export LFS
+umask 022
+
+check_lfs_env() {
+  echo "[INFO] LFS: $LFS, umask: $(umask)"
+  if [[ "$(umask)" != "0022" && "$(umask)" != "022" ]]; then
+    echo "[ERROR] umask must be 022" >&2; exit 1
+  fi
+}
+
+########################################
+# Phases 4–7 omitted for brevity (as previously defined)
+########################################
+
+mount_virtual_fs() {
+  mount -v --bind /dev $LFS/dev
+  mount -v --bind /dev/pts $LFS/dev/pts
+  mount -vt proc proc $LFS/proc
+  mount -vt sysfs sysfs $LFS/sys
+  mount -vt tmpfs tmpfs $LFS/run
+  if [ -h $LFS/dev/shm ]; then
+    install -dv -m1777 $LFS$(realpath /dev/shm)
+  else
+    mount -vt tmpfs -o nosuid,nodev tmpfs $LFS/dev/shm
+  fi
+}
+
+enter_chroot() {
+  chroot $LFS /usr/bin/env -i \
+    HOME=/root TERM="$TERM" PS1='(lfs chroot) \u:\w\$ ' \
+    PATH=/usr/bin:/usr/sbin \
+    MAKEFLAGS="-j$(nproc)" TESTSUITEFLAGS="-j$(nproc)" \
+    /bin/bash --login << 'EOF'
+set -euo pipefail
+export MAKEFLAGS TESTSUITEFLAGS LC_ALL
+
+# Chapters 7 completed above
+
+# Chapter 8: Installing Basic System Software
+
+# Define array of Chapter 8 packages
+CH8_PACKAGES=(
+  man-pages-6.12
+  iana-etc-20250123
+  glibc-2.41
+  zlib-1.3.1
+  bzip2-1.0.8
+  xz-5.6.4
+  lz4-1.10.0
+  zstd-1.5.7
+  file-5.46
+  readline-8.2.13
+  m4-1.4.19
+  bc-7.0.3
+  flex-2.6.4
+  tcl-8.6.16
+  expect-5.45.4
+  dejagnu-1.6.3
+  pkgconf-2.3.0
+  binutils-2.44
+  gmp-6.3.0
+  mpfr-4.2.1
+  mpc-1.3.1
+  attr-2.5.2
+  acl-2.3.2
+  libcap-2.73
+  libxcrypt-4.4.38
+  shadow-4.17.3
+  gcc-14.2.0
+  ncurses-6.5
+  sed-4.9
+  psmisc-23.7
+  gettext-0.24
+  bison-3.8.2
+  grep-3.11
+  bash-5.2.37
+  libtool-2.5.4
+  gdbm-1.24
+  gperf-3.1
+  expat-2.6.4
+  inetutils-2.6
+  less-668
+  perl-5.40.1
+  xml-parser-2.47
+  intltool-0.51.0
+  autoconf-2.72
+  automake-1.17
+  openssl-3.4.1
+  elfutils-0.192
+  libffi-3.4.7
+  python-3.13.2
+  flit-core-3.11.0
+  wheel-0.45.1
+  setuptools-75.8.1
+  ninja-1.12.1
+  meson-1.7.0
+  kmod-34
+  coreutils-9.6
+  check-0.15.2
+  diffutils-3.11
+  gawk-5.3.1
+  findutils-4.10.0
+  groff-1.23.0
+  grub-2.12
+  gzip-1.13
+  iproute2-6.13.0
+  kbd-2.7.1
+  libpipeline-1.5.8
+  make-4.4.1
+  patch-2.7.6
+  tar-1.35
+  texinfo-7.2
+  vim-9.1.1166
+  markupsafe-3.0.2
+  jinja2-3.1.5
+  systemd-257.3
+  systemd-man-pages-257.3
+  man-db-2.13.0
+  procps-ng-4.0.5
+  util-linux-2.40.4
+  e2fsprogs-1.47.2
+  sysklogd-2.7.0
+  sysvinit-3.14
+)
+
+for pkg in "${CH8_PACKAGES[@]}"; do
+  echo ">>> Chapter 8: Building $pkg"
+  cd $LFS_SRC_DIR/$pkg
+  case "$pkg" in
+    man-pages-6.12)
+      make prefix=/usr install ;;
+    iana-etc-20250123)
+      ./configure --prefix=/usr && make && make install ;;
+    glibc-2.41)
+      patch -Np1 -i ../glibc-2.41-fhs-1.patch
+      mkdir -v build && cd build
+      ../configure --prefix=/usr --host=$LFS_TGT --build=$(../scripts/config.guess) \
+                   --enable-kernel=5.4 --with-headers=$LFS/usr/include \
+                   --disable-nscd libc_cv_slibdir=/usr/lib
+      make && make DESTDIR=$LFS install ;;
+    zlib-1.3.1)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    bzip2-1.0.8)
+      patch -Np1 -i ../bzip2-1.0.8-install_docs-1.patch
+      make -f Makefile-libbz2_so && make clean
+      make PREFIX=/usr install && cp -v libbz2.so.* /usr/lib && ln -sv libbz2.so.1.0 /usr/lib/libbz2.so ;;
+    xz-5.6.4)
+      ./configure --prefix=/usr --disable-static --docdir=/usr/share/doc/xz-5.6.4
+      make && make DESTDIR=$LFS install ;;
+    lz4-1.10.0)
+      make PREFIX=/usr DESTDIR=$LFS install ;;
+    zstd-1.5.7)
+      make PREFIX=/usr DESTDIR=$LFS install ;;
+    file-5.46)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    readline-8.2.13)
+      ./configure --prefix=/usr --disable-static --with-curses
+      make SHLIB_LIBS="-lncursesw" && make DESTDIR=$LFS install ;;
+    m4-1.4.19)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    bc-7.0.3)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    flex-2.6.4)
+      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+    tcl-8.6.16)
+      cd unix && ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    expect-5.45.4)
+      ./configure --prefix=/usr --with-tcl=/usr/lib && make && make DESTDIR=$LFS install ;;
+    dejagnu-1.6.3)
+      autoreconf -f -i && ./configure --prefix=/usr --enable-install-doc && make && make DESTDIR=$LFS install ;;
+    pkgconf-2.3.0)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    binutils-2.44)
+      mkdir -v build && cd build
+      ../configure --prefix=/usr --disable-nls --enable-shared --enable-64-bit-bfd \
+                   --enable-new-dtags --enable-default-hash-style=gnu
+      make && make DESTDIR=$LFS install ;;
+    gmp-6.3.0)
+      ./configure --prefix=/usr --enable-cxx && make && make DESTDIR=$LFS install ;;
+    mpfr-4.2.1)
+      ./configure --prefix=/usr --disable-static --enable-thread-safe && make && make DESTDIR=$LFS install ;;
+    mpc-1.3.1)
+      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+    attr-2.5.2|acl-2.3.2)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    libcap-2.73)
+      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+    libxcrypt-4.4.38)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    shadow-4.17.3)
+      ./configure --prefix=/usr --sysconfdir=/etc && make && make DESTDIR=$LFS install ;;
+    gcc-14.2.0)
+      mkdir -v build && cd build
+      ../configure --prefix=/usr --disable-multilib --enable-languages=c,c++ \
+                   --disable-bootstrap --disable-libsanitizer
+      make && make DESTDIR=$LFS install && ln -sv gcc $LFS/usr/bin/cc ;;
+    ncurses-6.5)
+      mkdir build && cd build && ../configure --prefix=/usr --mandir=/usr/share/man \
+                   --with-shared --without-debug --without-normal --enable-pc-files \
+                   --with-cxx-shared && make && make DESTDIR=$LFS install && echo "" ;;
+    sed-4.9)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    psmisc-23.7)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    gettext-0.24)
+      ./configure --disable-shared && make && cp gettext-tools/src/{msgfmt,msgmerge,xgettext} /usr/bin ;;
+    bison-3.8.2)
+      ./configure --prefix=/usr --docdir=/usr/share/doc/bison-3.8.2 && make && make install ;;
+    grep-3.11)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    bash-5.2.37)
+      ./configure --prefix=/usr --host=$LFS_TGT --without-bash-malloc && make && make DESTDIR=$LFS install && ln -sv bash /bin/sh ;;
+    libtool-2.5.4)
+      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+    gdbm-1.24)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    gperf-3.1)
+      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+    expat-2.6.4)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    inetutils-2.6)
+      ./configure --prefix=/usr --localstatedir=/var/mail && make && make DESTDIR=$LFS install ;;
+    less-668)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    perl-5.40.1)
+      ./Configure -des -Dprefix=/usr -Dusrinc=/usr/include && make && make DESTDIR=$LFS install ;;
+    xml-parser-2.47)
+      perl Makefile.PL PREFIX=/usr && make && make DESTDIR=$LFS install ;;
+    intltool-0.51.0)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    autoconf-2.72)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    automake-1.17)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    openssl-3.4.1)
+      ./Configure --prefix=/usr --libdir=lib --openssldir=/etc/ssl && make && make DESTDIR=$LFS install ;;
+    elfutils-0.192)
+      mkdir -v build && cd build && ../configure --prefix=/usr --disable-debuginfod && make && make DESTDIR=$LFS install ;;
+    libffi-3.4.7)
+      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+    python-3.13.2)
+      ./configure --prefix=/usr --enable-shared --without-ensurepip && make && make DESTDIR=$LFS install ;;
+    flit-core-3.11.0|wheel-0.45.1|setuptools-75.8.1)
+      python3 -m pip install --prefix=/usr $pkg ;;
+    ninja-1.12.1)
+      ./configure --bootstrap && cp ninja /usr/bin ;;
+    meson-1.7.0)
+      python3 setup.py build && python3 setup.py install --root=$LFS ;;
+    kmod-34)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    coreutils-9.6)
+      ./configure --prefix=/usr --host=$LFS_TGT --build=$(build-aux/config.guess) && make && make DESTDIR=$LFS install ;;
+    check-0.15.2)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    diffutils-3.11)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    gawk-5.3.1)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    findutils-4.10.0)
+      ./configure --prefix=/usr --localstatedir=/var/lib/locate && make && make DESTDIR=$LFS install ;;
+    groff-1.23.0)
+      ./configure --prefix=/usr --sysconfdir=/etc groff_cv_forced_unlink=true && make && make DESTDIR=$LFS install ;;
+    grub-2.12)
+      ./configure --prefix=/usr --sysconfdir=/etc --disable-efiemu && make && make DESTDIR=$LFS install ;;
+    gzip-1.13)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    iproute2-6.13.0)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    kbd-2.7.1)
+      ./configure --prefix=/usr --with-models="etc/vconsole" && make && make DESTDIR=$LFS install ;;
+    libpipeline-1.5.8)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    make-4.4.1)
+      ./configure --prefix=/usr --without-guile && make && make DESTDIR=$LFS install ;;
+    patch-2.7.6)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    tar-1.35)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    texinfo-7.2)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    vim-9.1.1166)
+      ./configure --prefix=/usr --with-features=huge --enable-multibyte && make && make DESTDIR=$LFS install ;;
+    markupsafe-3.0.2)
+      python3 -m pip install --prefix=/usr MarkupSafe ;;
+    jinja2-3.1.5)
+      python3 -m pip install --prefix=/usr Jinja2 ;;
+    systemd-257.3)
+      ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var && make && make DESTDIR=$LFS install ;;
+    systemd-man-pages-257.3)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    man-db-2.13.0)
+      ./configure --prefix=/usr --sysconfdir=/etc && make && make DESTDIR=$LFS install ;;
+    procps-ng-4.0.5)
+      ./configure --prefix=/usr --disable-static && make && make DESTDIR=$LFS install ;;
+    util-linux-2.40.4)
+      mkdir -pv /var/lib/hwclock && \
+      ./configure --prefix=/usr --libdir=/usr/lib --runstatedir=/run \
+                   --disable-chfn-chsh --disable-login --disable-nologin \
+                   --disable-su --disable-setpriv --disable-runuser \
+                   --disable-pylibmount --disable-static \
+                   --disable-liblastlog2 --without-python \
+                   ADJTIME_PATH=/var/lib/hwclock/adjtime \
+                   --docdir=/usr/share/doc/util-linux-2.40.4 \
+      && make && make DESTDIR=$LFS install ;;
+    e2fsprogs-1.47.2)
+      ./configure --prefix=/usr --enable-elf-shlibs && make && make DESTDIR=$LFS install ;;
+    sysklogd-2.7.0)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+    sysvinit-3.14)
+      ./configure --prefix=/usr && make && make DESTDIR=$LFS install ;;
+  esac
+done
+
+# Final system configuration
+ln -sv /proc/self/mounts /etc/mtab
+cat > /etc/hosts << EOF
+127.0.0.1  localhost $(hostname)
+::1        localhost
+EOF
+# Create passwd and group as per LFS Book
+cat > /etc/passwd << "EOF"
+root:x:0:0:root:/root:/bin/bash
+bin:x:1:1:bin:/dev/null:/usr/bin/false
+daemon:x:6:6:Daemon User:/dev/null:/usr/bin/false
+messagebus:x:18:18:D-Bus Message Daemon User:/run/dbus:/usr/bin/false
+uuidd:x:80:80:UUID Generation Daemon User:/run/uuid:/usr/bin/false
+nobody:x:65534:65534:Unprivileged User:/dev/null:/usr/bin/false
+EOF
+cat > /etc/group << "EOF"
+root:x:0:
+bin:x:1:daemon
+sys:x:2:
+kmem:x:3:
+tape:x:4:
+tty:x:5:
+daemon:x:6:
+floppy:x:7:
+disk:x:8:
+lp:x:9:
+dialout:x:10:
+audio:x:11:
+video:x:12:
+utmp:x:13:
+cdrom:x:15:
+adm:x:16:
+messagebus:x:18:
+input:x:24:
+mail:x:34:
+kvm:x:61:
+uuidd:x:80:
+wheel:x:97:
+users:x:999:
+nogroup:x:65534:
+EOF
+# Create tester user
+echo "tester:x:101:101::/home/tester:/bin/bash" >> /etc/passwd
+echo "tester:x:101:" >> /etc/group
+install -o tester -d /home/tester
+# Initialize log files
+touch /var/log/{btmp,lastlog,faillog,wtmp}
+chgrp utmp /var/log/lastlog
+chmod 664 /var/log/lastlog
+chmod 600 /var/log/btmp
+
+# About Debugging Symbols
+# Strip debugging symbols to reduce footprint (preserve separately if needed)
+find /usr/{lib,libexec} -type f -name '*.so*' -exec strip --strip-debug '{}' + || true
+
+# Stripping
+# Remove unneeded symbols from binaries
+strip --strip-unneeded /usr/bin/* /usr/sbin/* /bin/* /sbin/* || true
+
+# Cleaning Up
+# Remove libtool archives and documentation
+find /usr/{lib,libexec} -name '*.la' -delete
+rm -rf /usr/share/{info,man,doc}/*
+exit
+EOF
+EOF
+EOF
+}
+
+main() {
+  check_lfs_env
+  # Phases 4-6 omitted
+  mount_virtual_fs
+  enter_chroot
+}
+
+main "$@"
