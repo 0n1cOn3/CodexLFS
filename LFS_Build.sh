@@ -17,6 +17,23 @@ LC_ALL=POSIX
 LFS_TGT=$(uname -m)-lfs-linux-gnu
 PATH=$LFS/tools/bin:$PATH
 
+# Basic network configuration
+HOSTNAME=lfs
+NET_IFACE=eth0
+IP_ADDR=192.168.1.2
+GATEWAY=192.168.1.1
+PREFIX=24
+BROADCAST=192.168.1.255
+DNS1=8.8.8.8
+DNS2=8.8.4.4
+
+# Time zone and locale configuration
+TIMEZONE=UTC
+LOCALE="en_US.UTF-8"
+
+# Root password (plain text)
+ROOT_PASSWORD="root"
+
 export LFS
 umask 022
 
@@ -48,6 +65,9 @@ enter_chroot() {
   chroot "$LFS" /usr/bin/env -i \
     HOME=/root TERM="$TERM" PS1='(lfs chroot) \u:\w\$ ' \
         PATH=/usr/bin:/usr/sbin LC_ALL=POSIX \
+        HOSTNAME="$HOSTNAME" NET_IFACE="$NET_IFACE" IP_ADDR="$IP_ADDR" \
+        GATEWAY="$GATEWAY" PREFIX="$PREFIX" BROADCAST="$BROADCAST" \
+        DNS1="$DNS1" DNS2="$DNS2" \
         MAKEFLAGS="-j$(nproc)" TESTSUITEFLAGS="-j$(nproc)" LFS_TGT="$LFS_TGT" \
     /bin/bash --login << 'EOF'
 set -euo pipefail
@@ -335,11 +355,152 @@ cd /sources/LFS-Bootscripts-20240825
 make install
 
 # Final system configuration
-ln -sv /proc/self/mounts /etc/mtab
-cat > /etc/hosts << "EOF"
-127.0.0.1  localhost
-::1        localhost
-EOF
+  ln -sv /proc/self/mounts /etc/mtab
+
+  echo "$HOSTNAME" > /etc/hostname
+
+  cat > /etc/hosts << EOF
+  127.0.0.1  localhost.localdomain localhost
+  127.0.1.1  ${HOSTNAME}.localdomain $HOSTNAME
+  $IP_ADDR   ${HOSTNAME}.localdomain $HOSTNAME
+  ::1        localhost ip6-localhost ip6-loopback
+  ff02::1    ip6-allnodes
+  ff02::2    ip6-allrouters
+  EOF
+
+  cat > /etc/resolv.conf << EOF
+  # Begin /etc/resolv.conf
+  nameserver $DNS1
+  nameserver $DNS2
+  # End /etc/resolv.conf
+  EOF
+
+  mkdir -p /etc/sysconfig
+  cat > /etc/sysconfig/ifconfig.$NET_IFACE << EOF
+  ONBOOT=yes
+  IFACE=$NET_IFACE
+  SERVICE=ipv4-static
+  IP=$IP_ADDR
+  GATEWAY=$GATEWAY
+  PREFIX=$PREFIX
+  BROADCAST=$BROADCAST
+  EOF
+
+  cat > /etc/sysconfig/clock << "EOF"
+  # Begin /etc/sysconfig/clock
+  UTC=1
+  CLOCKPARAMS=
+  # End /etc/sysconfig/clock
+  EOF
+
+  cat > /etc/sysconfig/console << "EOF"
+  # Begin /etc/sysconfig/console
+  UNICODE="1"
+  FONT="Lat2-Terminus16"
+  # End /etc/sysconfig/console
+  EOF
+
+  cat > /etc/inittab << "EOF"
+  # Begin /etc/inittab
+
+  id:3:initdefault:
+
+  si::sysinit:/etc/rc.d/init.d/rc S
+
+  l0:0:wait:/etc/rc.d/init.d/rc 0
+  l1:S1:wait:/etc/rc.d/init.d/rc 1
+  l2:2:wait:/etc/rc.d/init.d/rc 2
+  l3:3:wait:/etc/rc.d/init.d/rc 3
+  l4:4:wait:/etc/rc.d/init.d/rc 4
+  l5:5:wait:/etc/rc.d/init.d/rc 5
+  l6:6:wait:/etc/rc.d/init.d/rc 6
+
+  ca:12345:ctrlaltdel:/sbin/shutdown -t1 -a -r now
+
+  su:S06:once:/sbin/sulogin
+  s1:1:respawn:/sbin/sulogin
+
+  1:2345:respawn:/sbin/agetty --noclear tty1 9600
+  2:2345:respawn:/sbin/agetty tty2 9600
+  3:2345:respawn:/sbin/agetty tty3 9600
+  4:2345:respawn:/sbin/agetty tty4 9600
+  5:2345:respawn:/sbin/agetty tty5 9600
+  6:2345:respawn:/sbin/agetty tty6 9600
+
+  # End /etc/inittab
+  EOF
+
+  cat > /etc/sysconfig/rc.site << EOF
+  # rc.site
+  HOSTNAME=$HOSTNAME
+  EOF
+
+  ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+
+  cat > /etc/fstab << "EOF"
+  # Begin /etc/fstab
+
+  # file system  mount-point    type     options             dump  fsck order
+  /dev/<xxx>     /              <fff>    defaults            1     1
+  /dev/<yyy>     swap           swap     pri=1               0     0
+  proc           /proc          proc     nosuid,noexec,nodev 0     0
+  sysfs          /sys           sysfs    nosuid,noexec,nodev 0     0
+  devpts         /dev/pts       devpts   gid=5,mode=620      0     0
+  tmpfs          /run           tmpfs    defaults            0     0
+  devtmpfs       /dev           devtmpfs mode=0755,nosuid    0     0
+  tmpfs          /dev/shm       tmpfs    nosuid,nodev        0     0
+  cgroup2        /sys/fs/cgroup cgroup2  nosuid,noexec,nodev 0     0
+
+  # End /etc/fstab
+  EOF
+
+  cat > /etc/profile << EOF
+  # Begin /etc/profile
+
+  for i in \$(locale); do
+    unset \${i%=*}
+  done
+
+  if [[ "\$TERM" = linux ]]; then
+    export LANG=C.UTF-8
+  else
+    export LANG=$LOCALE
+  fi
+
+  # End /etc/profile
+  EOF
+
+  cat > /etc/inputrc << "EOF"
+  # Begin /etc/inputrc
+  set horizontal-scroll-mode Off
+  set meta-flag On
+  set input-meta On
+  set convert-meta Off
+  set output-meta On
+  set bell-style none
+  "\eOd": backward-word
+  "\eOc": forward-word
+  "\e[1~": beginning-of-line
+  "\e[4~": end-of-line
+  "\e[5~": beginning-of-history
+  "\e[6~": end-of-history
+  "\e[3~": delete-char
+  "\e[2~": quoted-insert
+  "\eOH": beginning-of-line
+  "\eOF": end-of-line
+  "\e[H": beginning-of-line
+  "\e[F": end-of-line
+  # End /etc/inputrc
+  EOF
+
+  cat > /etc/shells << "EOF"
+  # Begin /etc/shells
+  /bin/sh
+  /bin/bash
+  # End /etc/shells
+  EOF
+
+  echo "root:$ROOT_PASSWORD" | chpasswd
 # Create passwd and group as per LFS Book
 cat > /etc/passwd << "EOF"
 root:x:0:0:root:/root:/bin/bash
