@@ -437,6 +437,8 @@ make install
 
   ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 
+  ### Section 10: Making the LFS Bootable ###
+
   cat > /etc/fstab << "EOF"
   # Begin /etc/fstab
 
@@ -559,6 +561,7 @@ strip --strip-unneeded /usr/bin/* /usr/sbin/* /bin/* /sbin/* || true
 find /usr/{lib,libexec} -name '*.la' -delete
 rm -rf /usr/share/{info,man,doc}/*
 
+### Section 10.3: Building the Linux Kernel ###
 # Build and install the Linux kernel
 cd /sources/linux-6.13.4
 make mrproper
@@ -582,6 +585,7 @@ install uhci_hcd /sbin/modprobe ehci_hcd ; /sbin/modprobe -i uhci_hcd ; true
 # End /etc/modprobe.d/usb.conf
 EOF
 
+### Section 10.4: Using GRUB to Set Up the Boot Process ###
 # Install and configure GRUB
 grub-install /dev/sda
 cat > /boot/grub/grub.cfg << "EOF"
