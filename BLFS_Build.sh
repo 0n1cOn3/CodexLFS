@@ -15,8 +15,6 @@ BLFS=/mnt/lfs
 LOG_DIR=/var/log/blfs-build
 MAKEFLAGS=-j$(nproc)
 BLFS_BASE=https://www.linuxfromscratch.org/blfs/view/stable
-XORG_PREFIX=/usr
-XORG_CONFIG="--prefix=$XORG_PREFIX --sysconfdir=/etc --localstatedir=/var --disable-static"
 
 export BLFS MAKEFLAGS
 umask 022
