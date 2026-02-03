@@ -166,6 +166,76 @@ install -v -dm700 /var/lib/sasl
 EOF
 }
 
+build_gnupg() {
+  run_step "gnupg" bash -e <<'CMD'
+mkdir build
+cd build
+../configure --prefix=/usr \
+             --localstatedir=/var \
+             --sysconfdir=/etc \
+             --docdir=/usr/share/doc/gnupg-2.4.7
+make
+makeinfo --html --no-split -I doc -o doc/gnupg_nochunks.html ../doc/gnupg.texi
+makeinfo --plaintext       -I doc -o doc/gnupg.txt           ../doc/gnupg.texi
+make -C doc html
+make -C doc pdf
+make install
+install -v -m755 -d /usr/share/doc/gnupg-2.4.7/html
+install -v -m644 doc/gnupg_nochunks.html \
+               /usr/share/doc/gnupg-2.4.7/html/gnupg.html
+install -v -m644 ../doc/*.texi doc/gnupg.txt \
+               /usr/share/doc/gnupg-2.4.7
+install -v -m644 doc/gnupg.html/* \
+               /usr/share/doc/gnupg-2.4.7/html
+install -v -m644 doc/gnupg.pdf /usr/share/doc/gnupg-2.4.7
+CMD
+}
+
+build_gnutls() {
+  run_step "gnutls" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --docdir=/usr/share/doc/gnutls-3.8.9 \
+            --with-default-trust-store-pkcs11="pkcs11:"
+make
+make install
+CMD
+}
+
+build_iptables() {
+  run_step "iptables" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-nftables \
+            --enable-libipq
+make
+make install
+CMD
+}
+
+build_openssh() {
+  run_step "openssh" bash -e <<'CMD'
+install -v -g sys -m700 -d /var/lib/sshd
+groupadd -g 50 sshd 2>/dev/null || true
+useradd  -c 'sshd PrivSep' \
+         -d /var/lib/sshd  \
+         -g sshd           \
+         -s /bin/false     \
+         -u 50 sshd 2>/dev/null || true
+./configure --prefix=/usr \
+            --sysconfdir=/etc/ssh \
+            --with-privsep-path=/var/lib/sshd \
+            --with-default-path=/usr/bin \
+            --with-superuser-path=/usr/sbin:/usr/bin \
+            --with-pid-dir=/run
+make
+make install
+install -v -m755 contrib/ssh-copy-id /usr/bin
+install -v -m644 contrib/ssh-copy-id.1 /usr/share/man/man1
+install -v -m755 -d /usr/share/doc/openssh-9.9p2
+install -v -m644 INSTALL LICENCE OVERVIEW README* \
+               /usr/share/doc/openssh-9.9p2
+CMD
+}
+
 main() {
   local packages
   packages=$(get_package_list)
@@ -175,6 +245,10 @@ main() {
       CrackLib-*)       build_cracklib ;;
       cryptsetup-*)     build_cryptsetup ;;
       "Cyrus SASL"*)   build_cyrus_sasl ;;
+      GnuPG-*)         build_gnupg ;;
+      GnuTLS-*)        build_gnutls ;;
+      iptables-*)      build_iptables ;;
+      OpenSSH-*)       build_openssh ;;
       btrfs-progs-*)    build_btrfs_progs ;;
       dosfstools-*)     build_dosfstools ;;
       Fuse-*)           build_fuse ;;
