@@ -15,7 +15,3 @@ directly in the script, including packages like NetworkManager, libevent,
 GeoClue, Fetchmail and the Apache web server.  Developers can retrieve
 original command blocks from the BLFS site using the new `fetch_blfs_sections.py`
 helper script.
-Additional server packages (Dovecot, Exim, Postfix, Sendmail, MariaDB, PostgreSQL) are built automatically.  Chapter 24 includes many more Xorg components such as libX11, libXft and the Xorg server itself.
-Further coverage now includes extra GUI packages from Chapters 24-30,
-including libXaw, Cairo, Pango, GTK-3, the LightDM display manager and
-the Fluxbox window manager.
