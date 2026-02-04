@@ -1,17 +1,90 @@
 # CodexLFS
 
-A build script that automates the Linux From Scratch process.
+Build automation scripts for [Linux From Scratch](https://www.linuxfromscratch.org/lfs/) (LFS) and [Beyond Linux From Scratch](https://www.linuxfromscratch.org/blfs/) (BLFS).
 
-## BLFS Automation
+## Features
 
-`BLFS_Build.sh` extends the base LFS system using instructions from the [BLFS stable book](https://www.linuxfromscratch.org/blfs/view/stable/). For Chapters 4 through 9 and much of Chapters 10 through 15, the script contains explicit build commands for many packages. Recent updates expand Chapter 10 coverage with libraries such as `babl`, `Exiv2`, `FriBidi`, `gegl`, `libmng`, `libraw`, `librsvg`, `libwebp`, and `OpenJPEG`. Chapter 11 utilities including `asciidoctor`, `bogofilter`, `desktop-file-utils`, and `glslc` are scripted as well. Chapter 12 now includes utilities like `BlueZ`, `Bubblewrap`, `Colord`, `cpio`, `cups-pk-helper`, `elogind`, and `lm-sensors`, `autofs`, `hwdata`, `LSB-Tools`, `notification-daemon`, `pm-utils`, `power-profiles-daemon`, `raptor`, `rasqal`, `redland`, `sg3_utils`, `sysmond` and `sysmon3`. Networking programs such as `NcFTP`, `ntp`, `rpcbind`, `Samba`, `iw`, `Wireless Tools`, and `wpa_supplicant` are handled automatically; programming tools like `Clisp`, `GCC` and `GDB` are built directly. Additional utilities such as `GPM` and `blocaled` and development tools `dtc`, `GC`, `patchelf`, `Guile`, `luajit`, `Valgrind`, `Vala`, `LLVM`, `OpenJDK`, and `yasm` are now scripted. Programming coverage also includes tools like `Ruby`, `Rustc`, `rust-bindgen`, `SCons`, `slang`, `Subversion`, `SWIG`, `Tk`, `unifdef`, and `apache-ant`. Chapter 16 networking tools such as `Avahi`, `NetworkManager`, and `Wireshark` build directly, while Chapters 17-20 now include libraries like `cURL`, `libevent`, `libsoup`, and utilities such as `Links`, `Lynx`, `Mutt`, and `Procmail`. Remaining packages are downloaded on the fly from the BLFS site. By default all chapters 4 through 50 are processed, but you can limit execution with the `--chapters` option, for example `./BLFS_Build.sh --chapters 5,6` to run chapters 5 and 6 only.
+- **Automated LFS Build** – Complete Linux From Scratch system build via `LFS_Build.sh`
+- **BLFS Automation** – 300+ package build functions in `BLFS_Build.sh`
+- **Dynamic Fetching** – Automatically downloads build instructions for uncovered packages
+- **Selective Builds** – Run specific chapters with `--chapters` option
 
-It also includes Python 3.11.1 for compatibility.
-Additional Python modules including `cssselect`, `Cython`, and `docutils` are
-installed automatically.
+## Quick Start
 
-Networking utilities and libraries from Chapters 16–20 are implemented
-directly in the script, including packages like NetworkManager, libevent,
-GeoClue, Fetchmail and the Apache web server.  Developers can retrieve
-original command blocks from the BLFS site using the new `fetch_blfs_sections.py`
-helper script.
+```bash
+# Build base LFS system
+./LFS_Build.sh
+
+# Build BLFS packages (all chapters)
+./BLFS_Build.sh
+
+# Build only specific chapters
+./BLFS_Build.sh --chapters 5,6
+```
+
+## BLFS Coverage
+
+| Chapters | Topic | Status |
+|----------|-------|--------|
+| 4–8 | Security, Filesystems, Editors, Shells, Virtualization | ✅ Full |
+| 9–15 | Libraries, Graphics, Utilities, Programming, Networking | ⚡ Partial |
+| 16–20 | Networking Tools & Servers | ⚡ Partial |
+| 21–50 | X Window, KDE, GNOME, Multimedia, Printing | 🔄 Dynamic |
+
+### Explicit Package Coverage
+
+<details>
+<summary>Click to expand full package list</summary>
+
+**Libraries (Ch 9–10)**
+- `babl`, `Exiv2`, `FriBidi`, `gegl`, `libmng`, `libraw`, `librsvg`, `libwebp`, `OpenJPEG`
+
+**Utilities (Ch 11–12)**
+- `asciidoctor`, `bogofilter`, `desktop-file-utils`, `glslc`
+- `BlueZ`, `Bubblewrap`, `Colord`, `cpio`, `cups-pk-helper`, `elogind`, `lm-sensors`
+- `autofs`, `hwdata`, `LSB-Tools`, `notification-daemon`, `pm-utils`
+- `power-profiles-daemon`, `raptor`, `rasqal`, `redland`, `sg3_utils`, `sysmond`, `sysmon3`
+
+**Programming (Ch 13)**
+- `Clisp`, `GCC`, `GDB`, `dtc`, `GC`, `patchelf`, `Guile`, `luajit`
+- `Valgrind`, `Vala`, `LLVM`, `OpenJDK`, `yasm`, `Ruby`, `Rustc`, `rust-bindgen`
+- `SCons`, `slang`, `Subversion`, `SWIG`, `Tk`, `unifdef`, `apache-ant`
+
+**Networking (Ch 14–20)**
+- `NcFTP`, `ntp`, `rpcbind`, `Samba`, `iw`, `Wireless Tools`, `wpa_supplicant`
+- `Avahi`, `NetworkManager`, `Wireshark`, `cURL`, `libevent`, `libsoup`
+- `Links`, `Lynx`, `Mutt`, `Procmail`, `GeoClue`, `Fetchmail`, `Apache`
+
+**Python Modules**
+- `cssselect`, `Cython`, `docutils` (Python 3.11.1 included)
+
+</details>
+
+## Project Structure
+
+```
+CodexLFS/
+├── LFS_Build.sh           # Base LFS build automation
+├── BLFS_Build.sh          # BLFS package automation (300+ build functions)
+├── fetch_blfs_sections.py # Helper to fetch BLFS commands from website
+└── CONTRIBUTING.md        # Developer guide
+```
+
+## For Developers
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Adding new package build functions
+- Using `fetch_blfs_sections.py` to retrieve build commands
+- Priority packages for implementation
+
+### Fetch Build Commands
+
+```bash
+# Requires: pip install requests beautifulsoup4
+./fetch_blfs_sections.py general/ch9
+```
+
+## Resources
+
+- [LFS Book](https://www.linuxfromscratch.org/lfs/view/stable/)
+- [BLFS Book](https://www.linuxfromscratch.org/blfs/view/stable/)
