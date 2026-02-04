@@ -2,7 +2,7 @@
 
 ## Current State
 
-**333 explicit `build_*` functions** in `BLFS_Build.sh`.
+**Over 300 explicit `build_*` functions** in `BLFS_Build.sh`.
 
 ### Covered (Explicit)
 | Ch | Topic | Status |
@@ -11,7 +11,8 @@
 | 9-15 | Libs, Graphics, Utils, Programming, Net | Partial |
 | 16-20 | Net Tools/Servers | Partial |
 
-### Not Covered (Dynamic Fetch)
+### Not Covered (Dynamic Fetch) - Highlights
+Chapters 21-50 rely on dynamic fetching. Key areas include:
 | Ch | Topic |
 |----|-------|
 | 21-23 | Additional Servers |
@@ -43,7 +44,9 @@ pkgname-*) build_pkgname ;;
 
 3. **Use helper to fetch commands:**
 ```bash
-./fetch_blfs_sections.py CHAPTER
+# Argument is a BLFS URL path segment, e.g. "general/ch9", not just "9"
+# Requires: pip install requests beautifulsoup4
+./fetch_blfs_sections.py general/ch9
 ```
 
 ## Priority Packages
@@ -59,7 +62,7 @@ High-value targets for explicit implementation:
 ## File Structure
 
 ```
-BLFS_Build.sh     # Main script (4721 lines)
+BLFS_Build.sh     # Main script (large multi-thousand-line build script)
 fetch_blfs_sections.py  # Fetch BLFS commands
 LFS_Build.sh      # Base LFS build
 ```
@@ -67,9 +70,10 @@ LFS_Build.sh      # Base LFS build
 ## Testing
 
 ```bash
-# Dry run specific chapters
+# Run only specific chapters
 ./BLFS_Build.sh --chapters 5,6
 
 # Fetch commands only (no execution)
+# Requires: pip install requests beautifulsoup4
 ./fetch_blfs_sections.py general/ch9
 ```
