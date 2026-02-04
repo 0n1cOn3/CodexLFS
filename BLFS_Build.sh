@@ -17,6 +17,12 @@ MAKEFLAGS=-j$(nproc)
 BLFS_BASE=https://www.linuxfromscratch.org/blfs/view/stable
 
 export BLFS MAKEFLAGS
+
+# X Window System build environment (Chapter 24)
+export XORG_PREFIX=/usr
+export XORG_CONFIG="--prefix=$XORG_PREFIX --sysconfdir=/etc \
+    --localstatedir=/var --disable-static"
+
 umask 022
 
 mkdir -p "$LOG_DIR"
@@ -108,7 +114,7 @@ run_package() {
   run_step "$name" bash -c "$cmds"
 }
 
-# Chapter 4: Security - explicit instructions for initial packages
+# Chapter 4: Security
 
 build_make_ca() {
   run_step "make-ca" bash -e <<'EOF'
@@ -234,6 +240,329 @@ install -v -m644 INSTALL LICENCE OVERVIEW README* \
 CMD
 }
 
+build_gpgme() {
+  run_step "gpgme" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-gpg-test
+make
+make install
+CMD
+}
+
+build_gpgmepp() {
+  run_step "gpgmepp" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr \
+      -D CMAKE_BUILD_TYPE=Release  \
+      -D GPGME_INCLUDE_DIR=/usr/include/gpgme \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_libcap_pam() {
+  run_step "libcap-pam" bash -e <<'CMD'
+make -C pam_cap
+install -v -m755 pam_cap/pam_cap.so /usr/lib/security
+install -v -m644 pam_cap/capability.conf /etc/security
+CMD
+}
+
+build_linux_pam() {
+  run_step "Linux-PAM" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            -D docdir=/usr/share/doc/Linux-PAM-1.7.0 ..
+ninja
+ninja install
+chmod -v 4755 /usr/sbin/unix_chkpwd
+
+install -vdm755 /etc/pam.d
+
+cat > /etc/pam.d/system-account << "EOF"
+account   required    pam_unix.so
+EOF
+
+cat > /etc/pam.d/system-auth << "EOF"
+auth      required    pam_unix.so
+EOF
+
+cat > /etc/pam.d/system-session << "EOF"
+session   required    pam_unix.so
+EOF
+
+cat > /etc/pam.d/system-password << "EOF"
+password  required    pam_unix.so       sha512 shadow try_first_pass
+EOF
+
+cat > /etc/pam.d/other << "EOF"
+auth        required        pam_warn.so
+auth        required        pam_deny.so
+account     required        pam_warn.so
+account     required        pam_deny.so
+password    required        pam_warn.so
+password    required        pam_deny.so
+session     required        pam_warn.so
+session     required        pam_deny.so
+EOF
+CMD
+}
+
+build_libpwquality() {
+  run_step "libpwquality" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-static \
+            --with-securedir=/usr/lib/security \
+            --with-python-binary=python3
+make
+make install
+CMD
+}
+
+build_mitkrb() {
+  run_step "MIT-Kerberos" bash -e <<'CMD'
+cd src
+sed -e '/eq 0/{N;s/12 //}'   \
+    -e 's/yacc/bison -y/' \
+    -i configure
+./configure --prefix=/usr            \
+            --sysconfdir=/etc        \
+            --localstatedir=/var/lib \
+            --runstatedir=/run       \
+            --with-system-et         \
+            --with-system-ss         \
+            --with-system-verto=no   \
+            --enable-dns-for-realm
+make
+make install
+
+install -v -dm755 /usr/share/doc/krb5-1.21.3
+cp -vfr ../doc/*  /usr/share/doc/krb5-1.21.3
+CMD
+}
+
+build_nettle() {
+  run_step "nettle" bash -e <<'CMD'
+./configure --prefix=/usr --disable-static
+make
+make install
+chmod -v 755 /usr/lib/lib{hogweed,nettle}.so
+CMD
+}
+
+build_nss() {
+  run_step "nss" bash -e <<'CMD'
+make BUILD_OPT=1                      \
+  NSPR_INCLUDE_DIR=/usr/include/nspr  \
+  USE_SYSTEM_ZLIB=1                   \
+  ZLIB_LIBS=-lz                       \
+  NSS_USE_SYSTEM_SQLITE=1             \
+  NSS_DISABLE_GTESTS=1                \
+  $([ "$(uname -m)" = x86_64 ] && echo USE_64=1)
+
+install -v -m755 -d /usr/lib/pkgconfig
+install -v -m755 dist/Linux*/lib/*.so        /usr/lib
+install -v -m644 dist/Linux*/lib/*.chk       /usr/lib
+install -v -m644 dist/Linux*/lib/libcrmf.a   /usr/lib
+install -v -m755 -d /usr/include/nss
+install -v -m644 dist/public/nss/*           /usr/include/nss
+
+cat > /usr/lib/pkgconfig/nss.pc << "EOF"
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include/nss
+
+Name: NSS
+Description: Network Security Services
+Version: 3.107
+Requires: nspr >= 4.36
+Cflags: -I${includedir}
+Libs: -L${libdir} -lnss3 -lnssutil3 -lsmime3 -lssl3 -lsoftokn3
+EOF
+
+ln -sfv libsoftokn3.so /usr/lib/libsoftokn3.chk
+ln -sfv libfreeblpriv3.so /usr/lib/libfreeblpriv3.chk
+CMD
+}
+
+build_p11_kit() {
+  run_step "p11-kit" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            -D trust_paths=/etc/pki/anchors ..
+ninja
+ninja install
+ln -sfv /usr/libexec/p11-kit/trust-module-p11-kit-proxy /usr/lib/pkcs11/
+CMD
+}
+
+build_polkit() {
+  run_step "polkit" bash -e <<'CMD'
+groupadd -fg 27 polkitd
+useradd -c "PolicyKit Daemon Owner" -d /etc/polkit-1 -u 27 \
+        -g polkitd -s /bin/false polkitd 2>/dev/null || true
+
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            -D man=true             \
+            -D session_tracking=elogind \
+            -D tests=false ..
+ninja
+ninja install
+CMD
+}
+
+build_polkit_gnome() {
+  run_step "polkit-gnome" bash -e <<'CMD'
+./configure --prefix=/usr
+make
+make install
+CMD
+}
+
+build_shadow() {
+  run_step "shadow" bash -e <<'CMD'
+sed -i 's/groups$(EXEEXT) //' src/Makefile.in
+find man -name Makefile.in -exec sed -i \
+  's/groups\.1 / /'   \
+  's/getspnam\.3 / /' \
+  's/passwd\.5 / /'   {} \;
+
+sed -e 's:#ENCRYPT_METHOD DES:ENCRYPT_METHOD YESCRYPT:' \
+    -e 's:/var/spool/mail:/var/mail:'                   \
+    -e '/PATH=/{s@/sbin:@@;s@/bin:@@}'                  \
+    -i etc/login.defs
+
+./configure --sysconfdir=/etc   \
+            --disable-static    \
+            --with-{b,yes}crypt \
+            --without-libbsd    \
+            --with-group-name-max-length=32
+make
+make exec_prefix=/usr install
+make -C man install-man
+
+install -v -m644 /dev/null /etc/default/useradd
+
+cat > /etc/pam.d/login << "EOF"
+auth      optional    pam_faildelay.so  delay=3000000
+auth      requisite   pam_nologin.so
+auth      include     system-auth
+account   required    pam_access.so
+account   include     system-account
+session   required    pam_env.so
+session   required    pam_limits.so
+session   required    pam_lastlog.so
+session   include     system-session
+password  include     system-password
+EOF
+
+cat > /etc/pam.d/passwd << "EOF"
+password  include     system-password
+EOF
+
+cat > /etc/pam.d/su << "EOF"
+auth      sufficient  pam_rootok.so
+auth      include     system-auth
+auth      required    pam_wheel.so use_uid
+account   include     system-account
+session   required    pam_env.so
+session   include     system-session
+EOF
+
+cat > /etc/pam.d/chpasswd << "EOF"
+auth      sufficient  pam_rootok.so
+password  include     system-password
+EOF
+
+for PROGRAM in chfn chgpasswd chsh groupadd groupdel \
+               groupmems groupmod newusers useradd userdel usermod; do
+  install -v -m644 /etc/pam.d/chpasswd /etc/pam.d/${PROGRAM}
+  sed -i "s/chpasswd/${PROGRAM}/" /etc/pam.d/${PROGRAM}
+done
+CMD
+}
+
+build_ssh_askpass() {
+  run_step "ssh-askpass" bash -e <<'CMD'
+cd contrib
+make gnome-ssh-askpass3
+install -v -m755 gnome-ssh-askpass3 /usr/libexec/openssh/ssh-askpass
+ln -sfv /usr/libexec/openssh/ssh-askpass /usr/bin/ssh-askpass
+CMD
+}
+
+build_stunnel() {
+  run_step "stunnel" bash -e <<'CMD'
+groupadd -g 51 stunnel 2>/dev/null || true
+useradd -c "stunnel Daemon" -d /var/lib/stunnel \
+        -g stunnel -s /bin/false -u 51 stunnel 2>/dev/null || true
+
+./configure --prefix=/usr        \
+            --sysconfdir=/etc    \
+            --localstatedir=/var \
+            --disable-fips-mode
+make
+make install
+CMD
+}
+
+build_sudo() {
+  run_step "sudo" bash -e <<'CMD'
+./configure --prefix=/usr              \
+            --libexecdir=/usr/lib      \
+            --with-secure-path         \
+            --with-env-editor          \
+            --docdir=/usr/share/doc/sudo-1.9.16p2 \
+            --with-passprompt="[sudo] password for %p: " \
+            --with-all-insults
+make
+make install
+ln -sfv libsudo_util.so.0.0.0 /usr/lib/sudo/libsudo_util.so.0
+
+cat > /etc/pam.d/sudo << "EOF"
+auth      include     system-auth
+account   include     system-account
+password  include     system-password
+session   include     system-session
+EOF
+CMD
+}
+
+build_tripwire() {
+  run_step "tripwire" bash -e <<'CMD'
+sed -e 's|TWDB="${prefix}|TWDB="/var|'    \
+    -e '/TWMAN/ s|${prefix}|/usr/share|'  \
+    -e '/TWDOCS/ s|${prefix}|/usr/share|' \
+    -i installer/install.cfg
+
+autoreconf -fi
+CPPFLAGS=-std=c++11 \
+./configure --prefix=/usr \
+            --sysconfdir=/etc/tripwire
+make
+make install
+CMD
+}
+
+build_liboauth() {
+  run_step "liboauth" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-static
+make
+make install
+CMD
+}
+
 main() {
   local packages
   packages=$(get_package_list)
@@ -247,6 +576,23 @@ main() {
       GnuTLS-*)        build_gnutls ;;
       iptables-*)      build_iptables ;;
       OpenSSH-*)       build_openssh ;;
+      gpgme-*)          build_gpgme ;;
+      gpgmepp-*)        build_gpgmepp ;;
+      libcap-*)         build_libcap_pam ;;
+      Linux-PAM-*)      build_linux_pam ;;
+      libpwquality-*)   build_libpwquality ;;
+      "MIT Kerberos"*)  build_mitkrb ;;
+      Nettle-*)         build_nettle ;;
+      NSS-*)            build_nss ;;
+      p11-kit-*)        build_p11_kit ;;
+      Polkit-*)         build_polkit ;;
+      polkit-gnome-*)   build_polkit_gnome ;;
+      Shadow-*)         build_shadow ;;
+      ssh-askpass-*)    build_ssh_askpass ;;
+      stunnel-*)        build_stunnel ;;
+      Sudo-*)           build_sudo ;;
+      Tripwire-*)       build_tripwire ;;
+      liboauth-*)       build_liboauth ;;
       btrfs-progs-*)    build_btrfs_progs ;;
       dosfstools-*)     build_dosfstools ;;
       Fuse-*)           build_fuse ;;
@@ -315,6 +661,8 @@ main() {
       wv-*)             build_wv ;;
       Xapian-*)         build_xapian ;;
       PCRE2-*)          build_pcre2 ;;
+      fast_float-*)     build_fast_float ;;
+      libproxy-*)       build_libproxy ;;
       AAlib-*)          build_aalib ;;
       FreeType-*)       build_freetype ;;
       Fontconfig-*)     build_fontconfig ;;
@@ -572,6 +920,90 @@ main() {
       Dash-*)           build_dash ;;
       Tcsh-*)           build_tcsh ;;
       zsh-*)            build_zsh ;;
+      # Chapter 24: X Window System
+      util-macros-*)     build_util_macros ;;
+      xorgproto-*)       build_xorgproto ;;
+      libXau-*)          build_libxau ;;
+      libXdmcp-*)        build_libxdmcp ;;
+      xcb-proto-*)       build_xcb_proto ;;
+      libxcb-*)          build_libxcb ;;
+      "Xorg Libraries"*) build_xorg_libraries ;;
+      xcb-util-0.*)      build_xcb_util ;;
+      "XCB Utilities"*)  build_xcb_util_extras ;;
+      libxcvt-*)         build_libxcvt ;;
+      libdrm-*)          build_libdrm ;;
+      Mesa-*)            build_mesa ;;
+      xbitmaps-*)        build_xbitmaps ;;
+      "Xorg Applications"*) build_xorg_apps ;;
+      luit-*)            build_luit ;;
+      xcursor-themes-*)  build_xcursor_themes ;;
+      XKeyboardConfig-*|xkeyboard-config-*) build_xkeyboard_config ;;
+      "Xorg Fonts"*)     build_xorg_fonts ;;
+      Xorg-Server-*|xorg-server-*) build_xorg_server ;;
+      libevdev-*)        build_libevdev ;;
+      "Xorg Evdev"*)     build_xf86_input_evdev ;;
+      libinput-*)        build_libinput ;;
+      "Xorg Libinput"*)  build_xf86_input_libinput ;;
+      "Xorg Synaptics"*) build_xf86_input_synaptics ;;
+      "Xorg Wacom"*)     build_xf86_input_wacom ;;
+      Xwayland-*)        build_xwayland ;;
+      xterm-*)           build_xterm ;;
+      xclock-*)          build_xclock ;;
+      twm-*)             build_twm ;;
+      xinit-*)           build_xinit ;;
+      "Xorg Legacy"*)    build_xorg_legacy ;;
+      # Chapter 25: Graphical Environment Libraries
+      at-spi2-core-*)    build_at_spi2_core ;;
+      Atkmm-*)           build_atkmm ;;
+      Cairo-*)           build_cairo ;;
+      cairomm-*)         build_cairomm ;;
+      colord-gtk-*)      build_colord_gtk ;;
+      FLTK-*)            build_fltk ;;
+      Freeglut-*)        build_freeglut ;;
+      gdk-pixbuf-*)      build_gdk_pixbuf ;;
+      GLEW-*)            build_glew ;;
+      Glslang-*)         build_glslang ;;
+      GLU-*)             build_glu ;;
+      GOffice-*)         build_goffice ;;
+      Graphene-*)        build_graphene ;;
+      GTK-3.*|GTK+-3.*)  build_gtk3 ;;
+      GTK-4.*|GTK+-4.*)  build_gtk4 ;;
+      Gtkmm-*)           build_gtkmm ;;
+      gtk-vnc-*)         build_gtk_vnc ;;
+      gtksourceview-4.*) build_gtksourceview4 ;;
+      GtkSourceView-5.*|gtksourceview-5.*) build_gtksourceview5 ;;
+      imlib2-*)          build_imlib2 ;;
+      keybinder-*)       build_keybinder3 ;;
+      libadwaita-*)      build_libadwaita ;;
+      libei-*)           build_libei ;;
+      libepoxy-*)        build_libepoxy ;;
+      libhandy-*)        build_libhandy ;;
+      libnotify-*)       build_libnotify ;;
+      Pango-*)           build_pango ;;
+      Pangomm-*)         build_pangomm ;;
+      Qt-*|qt-*)         build_qt6 ;;
+      "Vulkan-Headers"*) build_vulkan_headers ;;
+      "Vulkan-Loader"*)  build_vulkan_loader ;;
+      WebKitGTK-*)       build_webkitgtk ;;
+      xdg-desktop-portal-gtk-*) build_xdg_desktop_portal_gtk ;;
+      xdg-desktop-portal-[0-9]*) build_xdg_desktop_portal ;;
+      startup-notification-*) build_startup_notification ;;
+      libxklavier-*)     build_libxklavier ;;
+      kColorPicker-*)    build_kcolorpicker ;;
+      kImageAnnotator-*) build_kimageannotator ;;
+      # Chapter 21: Mail Server Software
+      Dovecot-*)         build_dovecot ;;
+      Exim-*)            build_exim ;;
+      Postfix-*)         build_postfix ;;
+      sendmail-*)        build_sendmail ;;
+      # Chapter 22: Databases
+      lmdb-*)            build_lmdb ;;
+      MariaDB-*)         build_mariadb ;;
+      PostgreSQL-*)      build_postgresql ;;
+      SQLite-*)          build_sqlite ;;
+      # Chapter 23: Other Server Software
+      OpenLDAP-*)        build_openldap ;;
+      Unbound-*)         build_unbound ;;
       *) run_package "$name" "$path" ;;
     esac
   done <<<"$packages"
@@ -972,7 +1404,7 @@ ln -sv qemu-system-$(uname -m) /usr/bin/qemu
 CMD
 }
 
-# Chapter 9: General Libraries (partial)
+# Chapter 9: General Libraries
 
 build_abseil_cpp() {
   run_step "abseil-cpp" bash -e <<'CMD'
@@ -1192,7 +1624,31 @@ make install
 CMD
 }
 
-# Chapter 10: Graphics and Font Libraries (partial)
+build_fast_float() {
+  run_step "fast_float" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr \
+      -D CMAKE_BUILD_TYPE=Release  \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_libproxy() {
+  run_step "libproxy" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            -D release=true ..
+ninja
+ninja install
+CMD
+}
+
+# Chapter 10: Graphics and Font Libraries
 
 build_aalib() {
   run_step "AAlib" bash -e <<'CMD'
@@ -1856,7 +2312,7 @@ make install
 CMD
 }
 
-# Chapter 11: General Utilities (partial)
+# Chapter 11: General Utilities
 build_gmmlib() {
   run_step "gmmlib" bash -e <<'CMD'
 mkdir build
@@ -2896,7 +3352,7 @@ make install
 CMD
 }
 
-# Chapter 12: System Utilities (partial)
+# Chapter 12: System Utilities
 
 build_7zip() {
   run_step "7zip" bash -e <<'CMD'
@@ -3439,7 +3895,7 @@ install -v -m644 wpa_supplicant/dbus/dbus-wpa_supplicant.conf /etc/dbus-1/system
 CMD
 }
 
-# Chapter 13: Programming (partial)
+# Chapter 13: Programming
 
 build_cargo_c() {
   run_step "cargo-c" bash -e <<'CMD'
@@ -3718,7 +4174,7 @@ make install-service-dhcpcd
 CMD
 }
 
-# Chapter 15: Networking Programs (partial)
+# Chapter 15: Networking Programs
 
 build_bridge_utils() {
   run_step "bridge-utils" bash -e <<'CMD'
@@ -4718,4 +5174,1169 @@ cp -Rv doc/* /usr/share/doc/proftpd-1.3.8b
 ln -sfv ant-1.10.15 /opt/ant
 CMD
 }
+# Chapter 24: X Window System
+
+build_util_macros() {
+  run_step "util-macros" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make install
+CMD
+}
+
+build_xorgproto() {
+  run_step "xorgproto" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=$XORG_PREFIX ..
+ninja
+ninja install
+mv -v $XORG_PREFIX/share/doc/xorgproto{,-2024.1}
+CMD
+}
+
+build_libxau() {
+  run_step "libXau" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make check
+make install
+CMD
+}
+
+build_libxdmcp() {
+  run_step "libXdmcp" bash -e <<'CMD'
+./configure $XORG_CONFIG \
+            --docdir=/usr/share/doc/libXdmcp-1.1.5
+make
+make check
+make install
+CMD
+}
+
+build_xcb_proto() {
+  run_step "xcb-proto" bash -e <<'CMD'
+PYTHON=python3 ./configure $XORG_CONFIG
+make check
+make install
+rm -f $XORG_PREFIX/lib/pkgconfig/xcb-proto.pc
+CMD
+}
+
+build_libxcb() {
+  run_step "libxcb" bash -e <<'CMD'
+./configure $XORG_CONFIG      \
+            --without-doxygen \
+            --docdir='${datadir}'/doc/libxcb-1.17.0
+LC_ALL=en_US.UTF-8 make
+make check
+make install
+CMD
+}
+
+build_xorg_libraries() {
+  run_step "Xorg-Libraries" bash -e <<'CMD'
+cat > /tmp/lib-7.md5 << "XEOF"
+6ad67d4858814ac24e618b8072900664  xtrans-1.6.0.tar.xz
+146d770e564812e00f97e0cbdce632b7  libX11-1.8.12.tar.xz
+e59476db179e48c1fb4487c12d0105d1  libXext-1.3.6.tar.xz
+c5cc0942ed39c49b8fcd47a427bd4305  libFS-1.0.10.tar.xz
+d1ffde0a07709654b20bada3f9abdd16  libICE-1.1.2.tar.xz
+3aeeea05091db1c69e6f768e0950a431  libSM-1.2.6.tar.xz
+e613751d38e13aa0d0fd8e0149cec057  libXScrnSaver-1.2.4.tar.xz
+9acd189c68750b5028cf120e53c68009  libXt-1.3.1.tar.xz
+85edefb7deaad4590a03fccba517669f  libXmu-1.2.1.tar.xz
+05b5667aadd476d77e9b5ba1a1de213e  libXpm-3.5.17.tar.xz
+2a9793533224f92ddad256492265dd82  libXaw-1.0.16.tar.xz
+65b9ba1e9ff3d16c4fa72915d4bb585a  libXfixes-6.0.1.tar.xz
+af0a5f0abb5b55f8411cd738cf0e5259  libXcomposite-0.4.6.tar.xz
+4c54dce455d96e3bdee90823b0869f89  libXrender-0.9.12.tar.xz
+5ce55e952ec2d84d9817169d5fdb7865  libXcursor-1.2.3.tar.xz
+ca55d29fa0a8b5c4a89f609a7952ebf8  libXdamage-1.1.6.tar.xz
+8816cc44d06ebe42e85950b368185826  libfontenc-1.1.8.tar.xz
+66e03e3405d923dfaf319d6f2b47e3da  libXfont2-2.0.7.tar.xz
+d378be0fcbd1f689f9a132e0d642bc4b  libXft-2.3.9.tar.xz
+95a960c1692a83cc551979f7ffe28cf4  libXi-1.8.2.tar.xz
+228c877558c265d2f63c56a03f7d3f21  libXinerama-1.1.5.tar.xz
+24e0b72abe16efce9bf10579beaffc27  libXrandr-1.5.4.tar.xz
+66c9e9e01b0b53052bb1d02ebf8d7040  libXres-1.2.2.tar.xz
+b62dc44d8e63a67bb10230d54c44dcb7  libXtst-1.2.5.tar.xz
+8a26503185afcb1bbd2c65e43f775a67  libXv-1.0.13.tar.xz
+a90a5f01102dc445c7decbbd9ef77608  libXvMC-1.0.14.tar.xz
+74d1acf93b83abeb0954824da0ec400b  libXxf86dga-1.1.6.tar.xz
+d3db4b6dc924dc151822f5f7e79ae873  libXxf86vm-1.1.6.tar.xz
+57c7efbeceedefde006123a77a7bc825  libpciaccess-0.18.1.tar.xz
+229708c15c9937b6e5131d0413474139  libxkbfile-1.1.3.tar.xz
+9805be7e18f858bed9938542ed2905dc  libxshmfence-1.3.3.tar.xz
+bdd3ec17c6181fd7b26f6775886c730d  libXpresent-1.0.1.tar.xz
+XEOF
+
+for package in $(grep -v '^#' /tmp/lib-7.md5 | awk '{print $2}'); do
+  packagedir=${package%.tar.?z*}
+  tar -xf "$package"
+  pushd "$packagedir"
+    case $packagedir in
+      libXfont2-*)
+        ./configure $XORG_CONFIG --disable-devel-docs
+        ;;
+      libXt-*)
+        ./configure $XORG_CONFIG \
+                    --with-appdefaultdir=/etc/X11/app-defaults
+        ;;
+      libXpm-*)
+        ./configure $XORG_CONFIG --disable-open-zfile
+        ;;
+      libpciaccess-*)
+        mkdir build
+        cd build
+        meson setup --prefix=$XORG_PREFIX --buildtype=release ..
+        ninja
+        ninja install
+        popd
+        rm -rf "$packagedir"
+        continue
+        ;;
+      *)
+        ./configure $XORG_CONFIG
+        ;;
+    esac
+    make
+    make install
+  popd
+  rm -rf "$packagedir"
+done
+ldconfig
+CMD
+}
+
+build_xcb_util() {
+  run_step "xcb-util" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_xcb_util_extras() {
+  run_step "XCB-Utilities" bash -e <<'CMD'
+cat > /tmp/xcb-util-7.md5 << "XEOF"
+a67bfac2eff696170259ef1f5ce1b611  xcb-util-image-0.4.1.tar.xz
+fbdc05f86f72f287ed71b162f1a9725a  xcb-util-keysyms-0.4.1.tar.xz
+193b890e2a89a53c31e2ece3afcbd55f  xcb-util-renderutil-0.3.10.tar.xz
+581b3a092e3c0c1b4de6416d90b969c3  xcb-util-wm-0.4.2.tar.xz
+bc30cd267b11ac5803fe19929cabd230  xcb-util-cursor-0.1.5.tar.xz
+XEOF
+
+for package in $(grep -v '^#' /tmp/xcb-util-7.md5 | awk '{print $2}'); do
+  packagedir=${package%.tar.?z*}
+  tar -xf "$package"
+  pushd "$packagedir"
+    ./configure $XORG_CONFIG
+    make
+    make install
+  popd
+  rm -rf "$packagedir"
+done
+ldconfig
+CMD
+}
+
+build_libxcvt() {
+  run_step "libxcvt" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=$XORG_PREFIX --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_libdrm() {
+  run_step "libdrm" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=$XORG_PREFIX \
+            --buildtype=release   \
+            -D udev=true          \
+            -D valgrind=disabled  \
+            ..
+ninja
+ninja install
+CMD
+}
+
+build_mesa() {
+  run_step "Mesa" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup ..                    \
+  --prefix=$XORG_PREFIX           \
+  --buildtype=release             \
+  -D platforms=x11,wayland        \
+  -D gallium-drivers=auto         \
+  -D vulkan-drivers=auto          \
+  -D valgrind=disabled            \
+  -D video-codecs=all             \
+  -D libunwind=disabled
+ninja
+ninja install
+CMD
+}
+
+build_xbitmaps() {
+  run_step "xbitmaps" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make install
+CMD
+}
+
+build_xorg_apps() {
+  run_step "Xorg-Applications" bash -e <<'CMD'
+cat > /tmp/app-7.md5 << "XEOF"
+30f898d71a7d8e817302970f1976198c  iceauth-1.0.10.tar.xz
+7dcf5f702781bdd4aaff02e963a56270  mkfontscale-1.2.3.tar.xz
+b9efe1d21615c474b22439d41981beef  sessreg-1.1.4.tar.xz
+1d61c9f4a3d1486eff575bf233e5776c  setxkbmap-1.3.4.tar.xz
+6484cd8ee30354aaaf8f490988f5f6ef  smproxy-1.0.8.tar.xz
+bf7b5a94561c7c98de447ea53afabfc4  xauth-1.1.4.tar.xz
+37063ccf902fe3d55a90f387ed62fe1f  xcmsdb-1.0.7.tar.xz
+f97e81b2c063f6ae9b18d4b4be7543f6  xcursorgen-1.0.9.tar.xz
+700556957773d378fa16a65a4406be0a  xdpyinfo-1.4.0.tar.xz
+830a54ef3ba338013e06a1b5b012b4bd  xdriinfo-1.0.8.tar.xz
+f29d1544f8dd126a1b85e2f7f728672d  xev-1.2.6.tar.xz
+687e42aa5afaec37f14da3072651c635  xgamma-1.0.8.tar.xz
+45c7e956941194e5f06a9c7307f5f971  xhost-1.0.10.tar.xz
+8e4d14823b7cbefe1581c398c6ab0035  xinput-1.6.4.tar.xz
+83d711948de9ccac550d2f4af50e94c3  xkbcomp-1.4.7.tar.xz
+543c0535367ca30e0b0dbcfa90fefdf9  xkbevd-1.1.6.tar.xz
+07483ddfe1d83c197df792650583ff20  xkbutils-1.0.6.tar.xz
+f62b99839249ce9a7a8bb71a5bab6f9d  xkill-1.0.6.tar.xz
+da5b7a39702841281e1d86b7349a03ba  xlsatoms-1.1.4.tar.xz
+ab4b3c47e848ba8c3e47c021230ab23a  xlsclients-1.1.5.tar.xz
+ba2dd3db3361e374fefe2b1c797c46eb  xmessage-1.0.7.tar.xz
+0d66e07595ea083871048c4b805d8b13  xmodmap-1.0.11.tar.xz
+ab6c9d17eb1940afcfb80a72319270ae  xpr-1.2.0.tar.xz
+5ef4784b406d11bed0fdf07cc6fba16c  xprop-1.2.8.tar.xz
+dc7680201afe6de0966c76d304159bda  xrandr-1.5.3.tar.xz
+c8629d5a0bc878d10ac49e1b290bf453  xrdb-1.2.2.tar.xz
+55003733ef417db8fafce588ca74d584  xrefresh-1.1.0.tar.xz
+18ff5cdff59015722431d568a5c0bad2  xset-1.2.5.tar.xz
+fa9a24fe5b1725c52a4566a62dd0a50d  xsetroot-1.1.3.tar.xz
+d698862e9cad153c5fefca6eee964685  xvinfo-1.1.5.tar.xz
+b0081fb92ae56510958024242ed1bc23  xwd-1.0.9.tar.xz
+c91201bc1eb5e7b38933be8d0f7f16a8  xwininfo-1.1.6.tar.xz
+3e741db39b58be4fef705e251947993d  xwud-1.0.7.tar.xz
+XEOF
+
+for package in $(grep -v '^#' /tmp/app-7.md5 | awk '{print $2}'); do
+  packagedir=${package%.tar.?z*}
+  tar -xf "$package"
+  pushd "$packagedir"
+    ./configure $XORG_CONFIG
+    make
+    make install
+  popd
+  rm -rf "$packagedir"
+done
+rm -f $XORG_PREFIX/bin/xkeystone
+CMD
+}
+
+build_luit() {
+  run_step "luit" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_xcursor_themes() {
+  run_step "xcursor-themes" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_xkeyboard_config() {
+  run_step "xkeyboard-config" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=$XORG_PREFIX --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_xorg_fonts() {
+  run_step "Xorg-Fonts" bash -e <<'CMD'
+cat > /tmp/font-7.md5 << "XEOF"
+a6541d12ceba004c0c1e3df900324642  font-util-1.4.1.tar.xz
+a56b1a7f2c14173f71f010225fa131f1  encodings-1.1.0.tar.xz
+79f4c023e27d1db1dfd90d041ce89835  font-alias-1.0.5.tar.xz
+546d17feab30d4e3abcf332b454f58ed  font-adobe-utopia-type1-1.0.5.tar.xz
+063bfa1456c8a68208bf96a33f472bb1  font-bh-ttf-1.0.4.tar.xz
+51a17c981275439b85e15430a3d711ee  font-bh-type1-1.0.4.tar.xz
+00f64a84b6c9886040241e081347a853  font-ibm-type1-1.0.4.tar.xz
+fe972eaf13176fa9aa7e74a12ecc801a  font-misc-ethiopic-1.0.5.tar.xz
+3b47fed2c032af3a32aad9acc1d25150  font-xfree86-type1-1.0.5.tar.xz
+XEOF
+
+for package in $(grep -v '^#' /tmp/font-7.md5 | awk '{print $2}'); do
+  packagedir=${package%.tar.?z*}
+  tar -xf "$package"
+  pushd "$packagedir"
+    ./configure $XORG_CONFIG
+    make
+    make install
+  popd
+  rm -rf "$packagedir"
+done
+ln -svfn $XORG_PREFIX/share/fonts/X11/OTF /usr/share/fonts/X11-OTF
+ln -svfn $XORG_PREFIX/share/fonts/X11/TTF /usr/share/fonts/X11-TTF
+CMD
+}
+
+build_xorg_server() {
+  run_step "Xorg-Server" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup ..                          \
+  --prefix=$XORG_PREFIX                 \
+  --localstatedir=/var                  \
+  -D glamor=true                        \
+  -D systemd_logind=true                \
+  -D xkb_output_dir=/var/lib/xkb
+ninja
+ninja install
+mkdir -pv /etc/X11/xorg.conf.d
+install -v -d -m1777 /tmp/.ICE-unix /tmp/.X11-unix
+cat >> /etc/sysconfig/createfiles << "XEOF"
+/tmp/.ICE-unix dir 1777 root root
+/tmp/.X11-unix dir 1777 root root
+XEOF
+CMD
+}
+
+build_libevdev() {
+  run_step "libevdev" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup .. --prefix=$XORG_PREFIX    \
+               --buildtype=release      \
+               -D documentation=disabled \
+               -D tests=disabled
+ninja
+ninja install
+CMD
+}
+
+build_xf86_input_evdev() {
+  run_step "xf86-input-evdev" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_libinput() {
+  run_step "libinput" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup ..                          \
+  --prefix=$XORG_PREFIX                 \
+  --buildtype=release                   \
+  -D debug-gui=false                    \
+  -D tests=false                        \
+  -D libwacom=false                     \
+  -D udev-dir=/usr/lib/udev
+ninja
+ninja install
+CMD
+}
+
+build_xf86_input_libinput() {
+  run_step "xf86-input-libinput" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_xf86_input_synaptics() {
+  run_step "xf86-input-synaptics" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_xf86_input_wacom() {
+  run_step "xf86-input-wacom" bash -e <<'CMD'
+./configure $XORG_CONFIG --with-systemd-unit-dir=no
+make
+make install
+CMD
+}
+
+build_xwayland() {
+  run_step "Xwayland" bash -e <<'CMD'
+sed -i '/install_man/,$d' meson.build
+mkdir build
+cd build
+meson setup ..                          \
+  --prefix=$XORG_PREFIX                 \
+  --buildtype=release                   \
+  -D xkb_output_dir=/var/lib/xkb
+ninja
+ninja install
+if ! grep -q '.X11-unix' /etc/sysconfig/createfiles 2>/dev/null; then
+  cat >> /etc/sysconfig/createfiles << "XEOF"
+/tmp/.X11-unix dir 1777 root root
+XEOF
+fi
+CMD
+}
+
+build_xterm() {
+  run_step "xterm" bash -e <<'CMD'
+sed -i '/v0/{n;s/new:/new:kb=^?:/}' termcap
+printf '\tkbs=\\177,\n' >> terminfo
+
+TERMINFO=/usr/share/terminfo \
+./configure $XORG_CONFIG     \
+            --with-app-defaults=/etc/X11/app-defaults
+make
+make install
+mkdir -pv /usr/share/applications
+cp -v *.desktop /usr/share/applications/
+CMD
+}
+
+build_xclock() {
+  run_step "xclock" bash -e <<'CMD'
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_twm() {
+  run_step "twm" bash -e <<'CMD'
+sed -i -e '/^rcdir =/s,^\(rcdir = \).*,\1/etc/X11/app-defaults,' src/Makefile.in
+./configure $XORG_CONFIG
+make
+make install
+CMD
+}
+
+build_xinit() {
+  run_step "xinit" bash -e <<'CMD'
+./configure $XORG_CONFIG \
+            --with-xinitdir=/etc/X11/app-defaults
+make
+make install
+ldconfig
+CMD
+}
+
+build_xorg_legacy() {
+  run_step "Xorg-Legacy" bash -e <<'CMD'
+cat > /tmp/legacy-7.md5 << "XEOF"
+e09b61567ab4a4d534119bba24eddfb1  bdftopcf-1.1.1.tar.xz
+20239f6f99ac586f10360b0759f73361  font-adobe-100dpi-1.0.4.tar.xz
+2dc044f693ee8e0836f718c2699628b9  font-adobe-75dpi-1.0.4.tar.xz
+2c939d5bd4609d8e284be9bef4b8b330  font-jis-misc-1.0.4.tar.xz
+6300bc99a1e45fbbe6075b3de728c27f  font-daewoo-misc-1.0.4.tar.xz
+fe2c44307639062d07c6e9f75f4d6a13  font-isas-misc-1.0.4.tar.xz
+145128c4b5f7820c974c8c5b9f6ffe94  font-misc-misc-1.1.3.tar.xz
+XEOF
+
+for package in $(grep -v '^#' /tmp/legacy-7.md5 | awk '{print $2}'); do
+  packagedir=${package%.tar.?z*}
+  tar -xf "$package"
+  pushd "$packagedir"
+    ./configure $XORG_CONFIG
+    make
+    make install
+  popd
+  rm -rf "$packagedir"
+done
+ldconfig
+CMD
+}
+
+# Chapter 25: Graphical Environment Libraries
+
+build_at_spi2_core() {
+  run_step "at-spi2-core" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_atkmm() {
+  run_step "atkmm" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_cairo() {
+  run_step "cairo" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_cairomm() {
+  run_step "cairomm" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_colord_gtk() {
+  run_step "colord-gtk" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            -D vapi=true \
+            -D docs=false ..
+ninja
+ninja install
+CMD
+}
+
+build_fltk() {
+  run_step "fltk" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --enable-shared
+make
+make install
+CMD
+}
+
+build_freeglut() {
+  run_step "freeglut" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr       \
+      -D CMAKE_BUILD_TYPE=Release        \
+      -D FREEGLUT_BUILD_DEMOS=OFF        \
+      -D FREEGLUT_BUILD_STATIC_LIBS=OFF  \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_gdk_pixbuf() {
+  run_step "gdk-pixbuf" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release \
+            --wrap-mode=nofallback ..
+ninja
+ninja install
+CMD
+}
+
+build_glew() {
+  run_step "glew" bash -e <<'CMD'
+sed -i 's%lib64%lib%g' config/Makefile.linux
+sed -i -e '/glew.lib.static/d' Makefile
+make
+make install.all GLEW_DEST=/usr
+chmod -v 755 /usr/lib/libGLEW.so
+CMD
+}
+
+build_glslang() {
+  run_step "glslang" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr   \
+      -D CMAKE_BUILD_TYPE=Release    \
+      -D ALLOW_EXTERNAL_SPIRV_TOOLS=ON \
+      -D BUILD_SHARED_LIBS=ON        \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_glu() {
+  run_step "glu" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_goffice() {
+  run_step "goffice" bash -e <<'CMD'
+./configure --prefix=/usr
+make
+make install
+CMD
+}
+
+build_graphene() {
+  run_step "graphene" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_gtk3() {
+  run_step "gtk3" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr        \
+            --buildtype=release  \
+            -D man=true          \
+            -D broadway_backend=true ..
+ninja
+ninja install
+CMD
+}
+
+build_gtk4() {
+  run_step "gtk4" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr        \
+            --buildtype=release  \
+            -D broadway-backend=true \
+            -D vulkan=enabled ..
+ninja
+ninja install
+CMD
+}
+
+build_gtkmm() {
+  run_step "gtkmm" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_gtk_vnc() {
+  run_step "gtk-vnc" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_gtksourceview4() {
+  run_step "gtksourceview4" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_gtksourceview5() {
+  run_step "gtksourceview5" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_imlib2() {
+  run_step "imlib2" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-static
+make
+make install
+CMD
+}
+
+build_keybinder3() {
+  run_step "keybinder3" bash -e <<'CMD'
+./configure --prefix=/usr
+make
+make install
+CMD
+}
+
+build_libadwaita() {
+  run_step "libadwaita" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_libei() {
+  run_step "libei" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_libepoxy() {
+  run_step "libepoxy" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_libhandy() {
+  run_step "libhandy" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_libnotify() {
+  run_step "libnotify" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr       \
+            --buildtype=release \
+            -D man=false        \
+            -D gtk_doc=false ..
+ninja
+ninja install
+CMD
+}
+
+build_pango() {
+  run_step "pango" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_pangomm() {
+  run_step "pangomm" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_qt6() {
+  run_step "qt6" bash -e <<'CMD'
+./configure -prefix /usr                       \
+            -sysconfdir /etc/xdg               \
+            -archdatadir /usr/lib/qt6          \
+            -datadir /usr/share/qt6            \
+            -examplesdir /usr/share/doc/qt6/examples \
+            -headerdir /usr/include/qt6        \
+            -libdir /usr/lib                   \
+            -nomake examples                   \
+            -nomake tests                      \
+            -system-sqlite
+cmake --build . --parallel
+cmake --install .
+CMD
+}
+
+build_vulkan_headers() {
+  run_step "vulkan-headers" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr \
+      -D CMAKE_BUILD_TYPE=Release  \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_vulkan_loader() {
+  run_step "vulkan-loader" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr       \
+      -D CMAKE_BUILD_TYPE=Release        \
+      -D CMAKE_INSTALL_SYSCONFDIR=/etc   \
+      -D VULKAN_HEADERS_INSTALL_DIR=/usr \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_webkitgtk() {
+  run_step "webkitgtk" bash -e <<'CMD'
+mkdir -p buildgtk4
+cd buildgtk4
+cmake -D CMAKE_BUILD_TYPE=Release          \
+      -D CMAKE_INSTALL_PREFIX=/usr         \
+      -D CMAKE_SKIP_RPATH=ON              \
+      -D PORT=GTK                          \
+      -D LIB_INSTALL_DIR=/usr/lib         \
+      -D USE_LIBHYPHEN=OFF                \
+      -D ENABLE_GAMEPAD=OFF               \
+      -D ENABLE_MINIBROWSER=ON            \
+      -D ENABLE_DOCUMENTATION=OFF         \
+      -D USE_GTK4=ON                       \
+      -D USE_SOUP2=OFF                     \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_xdg_desktop_portal() {
+  run_step "xdg-desktop-portal" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_xdg_desktop_portal_gtk() {
+  run_step "xdg-desktop-portal-gtk" bash -e <<'CMD'
+mkdir build
+cd build
+meson setup --prefix=/usr \
+            --buildtype=release ..
+ninja
+ninja install
+CMD
+}
+
+build_startup_notification() {
+  run_step "startup-notification" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-static
+make
+make install
+CMD
+}
+
+build_libxklavier() {
+  run_step "libxklavier" bash -e <<'CMD'
+./configure --prefix=/usr \
+            --disable-static
+make
+make install
+CMD
+}
+
+build_kcolorpicker() {
+  run_step "kColorPicker" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr \
+      -D CMAKE_BUILD_TYPE=Release  \
+      -D BUILD_SHARED_LIBS=ON      \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+build_kimageannotator() {
+  run_step "kImageAnnotator" bash -e <<'CMD'
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr \
+      -D CMAKE_BUILD_TYPE=Release  \
+      -D BUILD_SHARED_LIBS=ON      \
+      -G Ninja ..
+ninja
+ninja install
+CMD
+}
+
+# Chapter 21: Mail Server Software
+
+build_dovecot() {
+  run_step "dovecot" bash -e <<'CMD'
+groupadd -g 42 dovecot 2>/dev/null || true
+useradd -c "Dovecot unprivileged" -d /dev/null -u 42 \
+        -g dovecot -s /bin/false dovecot 2>/dev/null || true
+groupadd -g 43 dovenull 2>/dev/null || true
+useradd -c "Dovecot login unprivileged" -d /dev/null -u 43 \
+        -g dovenull -s /bin/false dovenull 2>/dev/null || true
+
+./configure --prefix=/usr \
+            --sysconfdir=/etc \
+            --localstatedir=/var \
+            --with-systemdsystemunitdir=no \
+            --docdir=/usr/share/doc/dovecot-2.3.21 \
+            --disable-static
+make
+make install
+CMD
+}
+
+build_exim() {
+  run_step "exim" bash -e <<'CMD'
+groupadd -g 31 exim 2>/dev/null || true
+useradd -d /dev/null -c "Exim Daemon" -g exim -s /bin/false \
+        -u 31 exim 2>/dev/null || true
+
+sed -e 's,^BIN_DIR.*$,BIN_DIRECTORY=/usr/sbin,'  \
+    -e 's,^CONF.*$,CONFIGURE_FILE=/etc/exim.conf,' \
+    -e 's,^EXIM_USER.*$,EXIM_USER=exim,'           \
+    -e '/EXIM_MONITOR/s/EXIM_MONITOR/# EXIM_MONITOR/' \
+    -e '/^EXIM_TMPDIR/d'                             \
+    src/EDITME > Local/Makefile
+
+make
+make install
+install -v -m755 -d /var/spool/exim
+install -v -m750 -o exim -g exim -d /var/spool/exim
+install -v -m750 -o exim -g exim -d /var/log/exim
+CMD
+}
+
+build_postfix() {
+  run_step "postfix" bash -e <<'CMD'
+groupadd -g 32 postfix 2>/dev/null || true
+useradd -c "Postfix Daemon User" -d /var/spool/postfix -g postfix \
+        -s /bin/false -u 32 postfix 2>/dev/null || true
+groupadd -g 33 postdrop 2>/dev/null || true
+
+make CCARGS="-DUSE_TLS -I/usr/include/openssl \
+             -DUSE_SASL_AUTH -DUSE_CYRUS_SASL -I/usr/include/sasl" \
+     AUXLIBS="-lssl -lcrypto -lsasl2" \
+     makefiles
+make
+
+sh postfix-install -non-interactive \
+   daemon_directory=/usr/lib/postfix \
+   manpage_directory=/usr/share/man \
+   html_directory=/usr/share/doc/postfix-3.9.1/html \
+   readme_directory=/usr/share/doc/postfix-3.9.1/readme
+CMD
+}
+
+build_sendmail() {
+  run_step "sendmail" bash -e <<'CMD'
+groupadd -g 26 smmsp 2>/dev/null || true
+useradd -c "Sendmail Daemon" -g smmsp -d /dev/null \
+        -s /bin/false -u 26 smmsp 2>/dev/null || true
+
+cat >> devtools/Site/site.config.m4 << "EOF"
+APPENDDEF(`confENVDEF',`-DSTARTTLS')
+APPENDDEF(`confLIBS', `-lssl -lcrypto')
+APPENDDEF(`confINCDIRS', `-I/usr/include/openssl')
+EOF
+
+cd sendmail
+sh Build
+cd ../cf/cf
+cp generic-linux.mc sendmail.mc
+sh Build sendmail.cf
+cd ../..
+
+install -v -d -m755 /etc/mail
+install -v -m644 cf/cf/sendmail.cf /etc/mail
+install -v -m644 cf/cf/submit.cf   /etc/mail
+
+for dir in libexec mail sbin; do
+  install -v -d /usr/$dir
+done
+cd sendmail
+sh Build install
+CMD
+}
+
+# Chapter 22: Databases
+
+build_lmdb() {
+  run_step "lmdb" bash -e <<'CMD'
+cd libraries/liblmdb
+make
+sed -i 's| liblmdb.a||' Makefile
+make prefix=/usr install
+CMD
+}
+
+build_mariadb() {
+  run_step "mariadb" bash -e <<'CMD'
+groupadd -g 40 mysql 2>/dev/null || true
+useradd -c "MySQL Server" -d /srv/mysql -g mysql \
+        -s /bin/false -u 40 mysql 2>/dev/null || true
+
+mkdir build
+cd build
+cmake -D CMAKE_INSTALL_PREFIX=/usr      \
+      -D CMAKE_BUILD_TYPE=Release       \
+      -D INSTALL_DOCDIR=share/doc/mariadb-11.4.5 \
+      -D INSTALL_DOCREADMEDIR=share/doc/mariadb-11.4.5 \
+      -D INSTALL_MANDIR=share/man       \
+      -D INSTALL_MYSQLSHAREDIR=share/mysql \
+      -D INSTALL_MYSQLTESTDIR=share/mysql/test \
+      -D INSTALL_PLUGINDIR=lib/mysql/plugin \
+      -D INSTALL_SBINDIR=sbin           \
+      -D INSTALL_SCRIPTDIR=bin          \
+      -D INSTALL_SQLBENCHDIR=share/mysql/bench \
+      -D INSTALL_SUPPORTFILESDIR=share/mysql \
+      -D MYSQL_DATADIR=/srv/mysql       \
+      -D MYSQL_UNIX_ADDR=/run/mysqld/mysqld.sock \
+      -D WITH_EXTRA_CHARSETS=complex    \
+      -D WITH_SSL=system                \
+      -D SKIP_TESTS=ON                  \
+      ..
+make
+make install
+
+install -v -dm 755 /etc/mysql
+cat > /etc/mysql/my.cnf << "EOF"
+[mysqld]
+skip-networking
+datadir=/srv/mysql
+EOF
+
+install -v -dm 755 -o mysql -g mysql /srv/mysql /run/mysqld
+mariadb-install-db --basedir=/usr --datadir=/srv/mysql --user=mysql
+CMD
+}
+
+build_postgresql() {
+  run_step "postgresql" bash -e <<'CMD'
+groupadd -g 41 postgres 2>/dev/null || true
+useradd -c "PostgreSQL Server" -g postgres -d /srv/pgsql/data \
+        -s /bin/false -u 41 postgres 2>/dev/null || true
+
+./configure --prefix=/usr       \
+            --enable-thread-safety \
+            --docdir=/usr/share/doc/postgresql-17.2
+make
+make install
+
+install -v -dm 700 -o postgres -g postgres /srv/pgsql/data
+install -v -dm 755 -o postgres -g postgres /run/postgresql
+su - postgres -c '/usr/bin/initdb -D /srv/pgsql/data'
+CMD
+}
+
+build_sqlite() {
+  run_step "sqlite" bash -e <<'CMD'
+./configure --prefix=/usr                 \
+            --disable-static              \
+            --enable-fts5                 \
+            CPPFLAGS="-DSQLITE_ENABLE_FTS3=1            \
+                      -DSQLITE_ENABLE_FTS3_TOKENIZER=1  \
+                      -DSQLITE_ENABLE_FTS4=1            \
+                      -DSQLITE_ENABLE_COLUMN_METADATA=1 \
+                      -DSQLITE_SECURE_DELETE=1           \
+                      -DSQLITE_ENABLE_UNLOCK_NOTIFY=1    \
+                      -DSQLITE_ENABLE_DBSTAT_VTAB=1"
+make
+make install
+CMD
+}
+
+# Chapter 23: Other Server Software
+
+build_openldap() {
+  run_step "openldap" bash -e <<'CMD'
+groupadd -g 39 ldap 2>/dev/null || true
+useradd -c "OpenLDAP Daemon Owner" -d /var/lib/openldap -u 39 \
+        -g ldap -s /bin/false ldap 2>/dev/null || true
+
+autoconf
+./configure --prefix=/usr     \
+            --sysconfdir=/etc \
+            --disable-static  \
+            --enable-dynamic  \
+            --enable-crypt    \
+            --enable-spasswd  \
+            --enable-slapd    \
+            --enable-modules  \
+            --enable-rlookups \
+            --enable-backends=mod \
+            --disable-sql     \
+            --enable-overlays=mod
+make depend
+make
+make install
+
+sed -i '/\.telecom/d' /etc/openldap/ldap.conf
+
+install -v -dm700 -o ldap -g ldap /var/lib/openldap
+install -v -dm700 -o ldap -g ldap /etc/openldap/slapd.d
+CMD
+}
+
+build_unbound() {
+  run_step "unbound" bash -e <<'CMD'
+groupadd -g 88 unbound 2>/dev/null || true
+useradd -c "Unbound DNS Resolver" -d /var/lib/unbound -u 88 \
+        -g unbound -s /bin/false unbound 2>/dev/null || true
+
+./configure --prefix=/usr     \
+            --sysconfdir=/etc \
+            --disable-static  \
+            --with-pidfile=/run/unbound.pid
+make
+make install
+install -v -m755 -d /var/lib/unbound
+CMD
+}
+
 main "$@"
